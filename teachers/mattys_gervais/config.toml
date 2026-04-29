@@ -1,0 +1,75 @@
+# ─── Informations personnelles ────────────────────────────────────────────────
+nom                 = "Mattys Gervais"
+titre               = "Enseignant"
+courriel            = "MattysGervais@cegepjonquiere.ca"
+contact_preference  = "Préférablement par Teams"
+
+# ─── Plage horaire ────────────────────────────────────────────────────────────
+premiere_heure = 8   # première heure affichée sur la grille
+derniere_heure = 20  # la grille se termine ici (la dernière étiquette est ce nombre - 1)
+
+# ─── Cours (jusqu'à 4) ────────────────────────────────────────────────────────
+# couleur : "orange" | "blue" | "green" | "purple" | "red" | "pink" | "yellow" | "teal" | "grey"
+# Jours   : "Lundi" | "Mardi" | "Mercredi" | "Jeudi" | "Vendredi"
+
+[[courses]]
+code    = "420-KUA-JQ"
+nom     = "Programmation avancé"
+local   = "331.1"
+couleur = "orange"
+
+[[courses.seances]]
+jour   = "Jeudi"
+debut  = 8
+fin    = 12
+groupe = "Gr.20"
+
+[[courses.seances]]
+jour   = "Vendredi"
+debut  = 8
+fin    = 12
+groupe = "Gr.10"
+
+[[courses]]
+code    = "420-ZQA-JQ"
+nom     = "Gestion de fichiers"
+local   = "716.1"
+couleur = "blue"
+
+[[courses.seances]]
+jour   = "Lundi"
+debut  = 13
+fin    = 17
+groupe = "Gr.20"
+
+[[courses.seances]]
+jour   = "Mardi"
+debut  = 13
+fin    = 17
+groupe = "Gr.10"
+
+# ─── Disponibilités ───────────────────────────────────────────────────────────
+
+[[disponibilites]]
+jour  = "Mardi"
+debut = 8
+fin   = 12
+
+[[disponibilites]]
+jour  = "Jeudi"
+debut = 13
+fin   = 17
+
+# ─── Blocs optionnels (activités, indisponibilités, etc.) ─────────────────────
+# Chaque bloc a un label, une couleur, et une ou plusieurs séances.
+# Supprimer cette section entière si inutilisée.
+
+
+ [[extras]]
+ label   = "Cours UQAC"
+ couleur = "red"
+
+ [[extras.seances]]
+ jour  = "Vendredi"
+ debut = 13
+ fin   = 17
