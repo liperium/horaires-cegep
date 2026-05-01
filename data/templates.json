@@ -1,0 +1,118 @@
+{
+  "templates": [
+    {
+      "id": "ljPMNSdv-h9K",
+      "teacherKey": "mattys_gervais",
+      "profile": {
+        "nom": "Mattys Gervais",
+        "titre": "Enseignant",
+        "courriel": "MattysGervais@cegepjonquiere.ca",
+        "contactPreference": "Préférablement par Teams"
+      },
+      "startHour": 8,
+      "endHour": 20,
+      "blocks": [
+        {
+          "id": "gw_hWXU_2G",
+          "type": "course",
+          "day": "Jeudi",
+          "startHour": 8,
+          "endHour": 12,
+          "label": "Programmation avancé",
+          "code": "420-KUA-JQ",
+          "local": "331.1",
+          "groupe": "Gr.20",
+          "style": {
+            "color": "orange"
+          },
+          "lane": 0
+        },
+        {
+          "id": "eKqD3IpUit",
+          "type": "course",
+          "day": "Vendredi",
+          "startHour": 8,
+          "endHour": 12,
+          "label": "Programmation avancé",
+          "code": "420-KUA-JQ",
+          "local": "331.1",
+          "groupe": "Gr.10",
+          "style": {
+            "color": "orange"
+          },
+          "lane": 0
+        },
+        {
+          "id": "Ic9Qtbewjd",
+          "type": "course",
+          "day": "Lundi",
+          "startHour": 13,
+          "endHour": 17,
+          "label": "Gestion de fichiers",
+          "code": "420-ZQA-JQ",
+          "local": "716.1",
+          "groupe": "Gr.20",
+          "style": {
+            "color": "blue"
+          },
+          "lane": 0
+        },
+        {
+          "id": "k3AeD-kpRw",
+          "type": "course",
+          "day": "Mardi",
+          "startHour": 13,
+          "endHour": 17,
+          "label": "Gestion de fichiers",
+          "code": "420-ZQA-JQ",
+          "local": "716.1",
+          "groupe": "Gr.10",
+          "style": {
+            "color": "blue"
+          },
+          "lane": 0
+        },
+        {
+          "id": "qXUfkSo8zs",
+          "type": "availability",
+          "day": "Mardi",
+          "startHour": 8,
+          "endHour": 12,
+          "label": "Dispo",
+          "style": {
+            "color": "blue"
+          },
+          "lane": 0
+        },
+        {
+          "id": "uPK-LYOgRB",
+          "type": "availability",
+          "day": "Jeudi",
+          "startHour": 13,
+          "endHour": 17,
+          "label": "Dispo",
+          "style": {
+            "color": "blue"
+          },
+          "lane": 0
+        },
+        {
+          "id": "VkMSZHYC7B",
+          "type": "extra",
+          "day": "Vendredi",
+          "startHour": 13,
+          "endHour": 17,
+          "label": "Cours UQAC",
+          "style": {
+            "color": "red"
+          },
+          "lane": 0
+        }
+      ],
+      "version": {
+        "timestamp": "2026-05-01T21:34:37.192Z",
+        "note": "Migrated from config.toml"
+      }
+    }
+  ]
+}

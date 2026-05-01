@@ -1,0 +1,10 @@
+body {
+  margin: 0;
+  font-family: Inter, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: #fff;
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+}
