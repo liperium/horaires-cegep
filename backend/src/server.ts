@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import { nanoid } from "nanoid";
 import { z } from "zod";
-import { zTeacherTemplate } from "./schema.js";
+import { zTeacherTemplate } from "./template-contract.js";
 import { getTemplate, listTemplates, savePdf, upsertTemplate } from "./store.js";
 import { renderPdf } from "./typst.js";
 

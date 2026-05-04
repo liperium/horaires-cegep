@@ -17,6 +17,7 @@ async function runMigration() {
         const template = {
             id: nanoid(12),
             teacherKey,
+            session: parsed.session ?? "Hiver 2026",
             profile: {
                 nom: parsed.nom,
                 titre: parsed.titre,

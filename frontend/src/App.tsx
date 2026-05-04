@@ -2,57 +2,26 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 import "./App.css";
+import {
+  DAYS,
+  PALETTE_COLORS,
+  PALETTE,
+  zTeacherTemplate,
+  zTemplateListResponse,
+} from "../../backend/src/template-contract.ts";
+import type {
+  Availability,
+  Course,
+  Day,
+  Extra,
+  Palette,
+  Session,
+  TeacherTemplate,
+} from "../../backend/src/template-contract.ts";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
 
-type Day = "Lundi" | "Mardi" | "Mercredi" | "Jeudi" | "Vendredi";
-type Palette = "orange" | "blue" | "light_blue" | "green" | "purple" | "red" | "pink" | "yellow" | "teal" | "grey";
 type GroupType = "course" | "availability" | "extra";
-
-interface Session {
-  id: string;
-  day: Day;
-  startHour: number;
-  endHour: number;
-  groupe?: string;
-  lane: number;
-}
-
-interface Course {
-  id: string;
-  code: string;
-  nom: string;
-  local: string;
-  couleur: Palette;
-  seances: Session[];
-}
-
-interface Availability {
-  id: string;
-  label: string;
-  couleur: Palette;
-  seances: Session[];
-}
-
-interface Extra {
-  id: string;
-  label: string;
-  couleur: Palette;
-  seances: Session[];
-}
-
-interface TeacherTemplate {
-  id: string;
-  teacherKey: string;
-  session: string;
-  profile: { nom: string; titre: string; courriel: string; contactPreference: string };
-  startHour: number;
-  endHour: number;
-  courses: Course[];
-  disponibilites: Availability[];
-  extras: Extra[];
-  version: { timestamp: string; note: string };
-}
 
 interface SessionRef {
   sessionId: string;
@@ -66,22 +35,34 @@ interface SessionRef {
   lane: number;
 }
 
-const days: Day[] = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"];
-const palette: Palette[] = ["orange", "blue", "light_blue", "green", "purple", "red", "pink", "yellow", "teal", "grey"];
-const colorMap: Record<Palette, string> = {
-  orange: "#f7941d",
-  blue: "#1976d2",
-  light_blue: "#00a2e8",
-  green: "#4caf50",
-  purple: "#9c59b6",
-  red: "#d32f2f",
-  pink: "#e91e63",
-  yellow: "#fbc02d",
-  teal: "#009688",
-  grey: "#787878",
-};
+type TemplateListItem = { teacherKey: string; nom: string };
+type Group = Course | Availability | Extra;
+
+const days: Day[] = [...DAYS];
+const palette: Palette[] = [...PALETTE];
+const coursePalette = palette.filter((p) => p !== "light_blue" && p !== "grey" && p !== "red");
+const extraPalette: Palette[] = ["grey", "red"];
 
 const hourPx = 46;
+
+function allGroups(template: Pick<TeacherTemplate, "courses" | "disponibilites" | "extras">): Group[] {
+  return [...template.courses, ...template.disponibilites, ...template.extras];
+}
+
+function updateGroupCollection(
+  draft: TeacherTemplate,
+  groupType: GroupType,
+  updater: (groups: Group[]) => Group[],
+): TeacherTemplate {
+  if (groupType === "course") {
+    draft.courses = updater(draft.courses) as Course[];
+  } else if (groupType === "availability") {
+    draft.disponibilites = updater(draft.disponibilites) as Availability[];
+  } else {
+    draft.extras = updater(draft.extras) as Extra[];
+  }
+  return draft;
+}
 
 function toTeacherKey(name: string): string {
   return name.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
@@ -105,8 +86,27 @@ function newSession(): Session {
   };
 }
 
+function newCourse(): Course {
+  return {
+    id: crypto.randomUUID(),
+    code: "420-XXX-JQ",
+    nom: "Nouveau cours",
+    local: "000.0",
+    couleur: "orange",
+    seances: [newSession()],
+  };
+}
+
+function newAvailability(): Availability {
+  return { id: crypto.randomUUID(), label: "Dispo", couleur: "light_blue", seances: [newSession()] };
+}
+
+function newExtra(): Extra {
+  return { id: crypto.randomUUID(), label: "Activite", couleur: "grey", seances: [newSession()] };
+}
+
 function App() {
-  const [templates, setTemplates] = useState<Array<{ teacherKey: string; nom: string }>>([]);
+  const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<string>("");
   const [template, setTemplate] = useState<TeacherTemplate | null>(null);
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
@@ -128,7 +128,7 @@ function App() {
   useEffect(() => {
     async function loadList(): Promise<void> {
       const response = await fetch("/api/templates");
-      const data = (await response.json()) as Array<{ teacherKey: string; nom: string }>;
+      const data = zTemplateListResponse.parse(await response.json());
       setTemplates(data);
       if (data[0]) {
         setSelectedTeacher(data[0].teacherKey);
@@ -144,7 +144,7 @@ function App() {
     async function loadTemplate(): Promise<void> {
       setLoading(true);
       const response = await fetch(`/api/templates/${selectedTeacher}`);
-      const data = (await response.json()) as TeacherTemplate;
+      const data = zTeacherTemplate.parse(await response.json());
       setTemplate(data);
       setHistory([]);
       setFuture([]);
@@ -157,46 +157,26 @@ function App() {
 
   const flatSessions = useMemo(() => {
     if (!template) return [] as SessionRef[];
-    const fromCourses = template.courses.flatMap((course) =>
-      course.seances.map((session) => ({
-        sessionId: session.id,
-        groupId: course.id,
-        groupType: "course" as const,
-        label: course.nom,
-        color: course.couleur,
-        day: session.day,
-        startHour: session.startHour,
-        endHour: session.endHour,
-        lane: session.lane,
-      })),
-    );
-    const fromDispos = template.disponibilites.flatMap((group) =>
-      group.seances.map((session) => ({
-        sessionId: session.id,
-        groupId: group.id,
-        groupType: "availability" as const,
-        label: group.label,
-        color: group.couleur,
-        day: session.day,
-        startHour: session.startHour,
-        endHour: session.endHour,
-        lane: session.lane,
-      })),
-    );
-    const fromExtras = template.extras.flatMap((group) =>
-      group.seances.map((session) => ({
-        sessionId: session.id,
-        groupId: group.id,
-        groupType: "extra" as const,
-        label: group.label,
-        color: group.couleur,
-        day: session.day,
-        startHour: session.startHour,
-        endHour: session.endHour,
-        lane: session.lane,
-      })),
-    );
-    return [...fromCourses, ...fromDispos, ...fromExtras];
+    const toSessionRefs = <T extends Group>(groups: T[], groupType: GroupType, labelFrom: (group: T) => string) =>
+      groups.flatMap((group) =>
+        group.seances.map((session) => ({
+          sessionId: session.id,
+          groupId: group.id,
+          groupType,
+          label: labelFrom(group),
+          color: group.couleur,
+          day: session.day,
+          startHour: session.startHour,
+          endHour: session.endHour,
+          lane: session.lane,
+        })),
+      );
+
+    return [
+      ...toSessionRefs(template.courses, "course", (group) => group.nom),
+      ...toSessionRefs(template.disponibilites, "availability", (group) => group.label),
+      ...toSessionRefs(template.extras, "extra", (group) => group.label),
+    ];
   }, [template]);
   const hourCount = template ? template.endHour - template.startHour : 0;
   const selectedSession = useMemo(
@@ -210,7 +190,7 @@ function App() {
 
   const selectedSessionObj = useMemo(() => {
     if (!template || !selectedSession) return null;
-    for (const group of [...template.courses, ...template.disponibilites, ...template.extras]) {
+    for (const group of allGroups(template)) {
       const s = group.seances.find((s) => s.id === selectedSession.sessionId);
       if (s) return s;
     }
@@ -219,7 +199,7 @@ function App() {
 
   function updateSession(sessionId: string, updater: (s: Session) => Session): void {
     updateTemplate((draft) => {
-      for (const group of [...draft.courses, ...draft.disponibilites, ...draft.extras]) {
+      for (const group of allGroups(draft)) {
         const idx = group.seances.findIndex((s) => s.id === sessionId);
         if (idx !== -1) {
           group.seances[idx] = updater(group.seances[idx]);
@@ -233,15 +213,9 @@ function App() {
 
   function updateGroup(groupType: GroupType, groupId: string, updater: (current: Course | Availability | Extra) => Course | Availability | Extra): void {
     updateTemplate((draft) => {
-      if (groupType === "course") {
-        draft.courses = draft.courses.map((group) => (group.id === groupId ? (updater(group) as Course) : group));
-      } else if (groupType === "availability") {
-        draft.disponibilites = draft.disponibilites.map((group) =>
-          group.id === groupId ? (updater(group) as Availability) : group,
-        );
-      } else {
-        draft.extras = draft.extras.map((group) => (group.id === groupId ? (updater(group) as Extra) : group));
-      }
+      updateGroupCollection(draft, groupType, (groups) =>
+        groups.map((group) => (group.id === groupId ? updater(group) : group)),
+      );
       draft.version = { timestamp: new Date().toISOString(), note: "Edited in web app" };
       return draft;
     });
@@ -273,8 +247,7 @@ function App() {
       setTemplate((current) => {
         if (!current) return current;
         const clone = structuredClone(current);
-        const groups = [...clone.courses, ...clone.disponibilites, ...clone.extras];
-        for (const group of groups) {
+        for (const group of allGroups(clone)) {
           const session = group.seances.find((entry) => entry.id === ref.sessionId);
           if (session) {
             session.day = days[nextDayIndex];
@@ -313,8 +286,7 @@ function App() {
       setTemplate((current) => {
         if (!current) return current;
         const clone = structuredClone(current);
-        const groups = [...clone.courses, ...clone.disponibilites, ...clone.extras];
-        for (const group of groups) {
+        for (const group of allGroups(clone)) {
           const session = group.seances.find((entry) => entry.id === ref.sessionId);
           if (session) {
             session.endHour = Math.max(session.startHour + 1, next);
@@ -358,8 +330,9 @@ function App() {
         body: JSON.stringify(template),
       });
       if (!response.ok) {
-        const err = (await response.json()) as { error: unknown };
-        setRenderError(typeof err.error === "string" ? err.error : JSON.stringify(err.error));
+        const err = (await response.json()) as unknown;
+        const message = typeof err === "object" && err !== null && "error" in err ? (err as { error: unknown }).error : err;
+        setRenderError(typeof message === "string" ? message : JSON.stringify(message));
         setAutoRenderStatus("Render failed");
         return;
       }
@@ -421,12 +394,12 @@ function App() {
       id: crypto.randomUUID(),
       teacherKey,
       session: "Hiver 2026",
-      profile: { nom: name, titre: "Prof.", courriel: `${emailBase}@college.qc.ca`, contactPreference: "courriel" },
+      profile: { nom: name, titre: "Enseignant", courriel: `${emailBase}@cegepjonquiere.ca`, contactPreference: "Me contacter par Teams." },
       startHour: 8,
       endHour: 18,
       courses: [{ id: crypto.randomUUID(), code: "420-XXX-JQ", nom: "Nouveau cours", local: "000.0", couleur: "orange", seances: [{ id: crypto.randomUUID(), day: "Lundi", startHour: 8, endHour: 10, lane: 0 }] }],
-      disponibilites: [{ id: crypto.randomUUID(), label: "Dispo", couleur: "light_blue", seances: [{ id: crypto.randomUUID(), day: "Mercredi", startHour: 8, endHour: 10, lane: 0 }] }],
-      extras: [{ id: crypto.randomUUID(), label: "Activite", couleur: "grey", seances: [{ id: crypto.randomUUID(), day: "Vendredi", startHour: 8, endHour: 10, lane: 0 }] }],
+      disponibilites: [{ ...newAvailability(), seances: [{ id: crypto.randomUUID(), day: "Mercredi", startHour: 8, endHour: 10, lane: 0 }] }],
+      extras: [{ ...newExtra(), seances: [{ id: crypto.randomUUID(), day: "Vendredi", startHour: 8, endHour: 10, lane: 0 }] }],
       version: { timestamp: new Date().toISOString(), note: "Created in web app" },
     };
     await fetch("/api/templates", {
@@ -435,7 +408,7 @@ function App() {
       body: JSON.stringify(newTemplate),
     });
     const listRes = await fetch("/api/templates");
-    const data = (await listRes.json()) as Array<{ teacherKey: string; nom: string }>;
+    const data = zTemplateListResponse.parse(await listRes.json());
     setTemplates(data);
     setSelectedTeacher(teacherKey);
     setNewTeacherName("");
@@ -558,17 +531,7 @@ function App() {
                 onClick={() =>
                   updateTemplate((draft) => ({
                     ...draft,
-                    courses: [
-                      ...draft.courses,
-                      {
-                        id: crypto.randomUUID(),
-                        code: "420-XXX-JQ",
-                        nom: "Nouveau cours",
-                        local: "000.0",
-                        couleur: "orange",
-                        seances: [newSession()],
-                      },
-                    ],
+                    courses: [...draft.courses, newCourse()],
                   }))
                 }
               >
@@ -578,10 +541,7 @@ function App() {
                 onClick={() =>
                   updateTemplate((draft) => ({
                     ...draft,
-                    disponibilites: [
-                      ...draft.disponibilites,
-                      { id: crypto.randomUUID(), label: "Dispo", couleur: "light_blue", seances: [newSession()] },
-                    ],
+                    disponibilites: [...draft.disponibilites, newAvailability()],
                   }))
                 }
               >
@@ -591,10 +551,7 @@ function App() {
                 onClick={() =>
                   updateTemplate((draft) => ({
                     ...draft,
-                    extras: [
-                      ...draft.extras,
-                      { id: crypto.randomUUID(), label: "Activite", couleur: "grey", seances: [newSession()] },
-                    ],
+                    extras: [...draft.extras, newExtra()],
                   }))
                 }
               >
@@ -641,7 +598,7 @@ function App() {
                           updateGroup("course", selectedCourse.id, (group) => ({ ...group, couleur: event.target.value as Palette }))
                         }
                       >
-                        {palette.filter((p) => p !== "light_blue").map((entry) => (
+                        {coursePalette.map((entry) => (
                           <option key={entry} value={entry}>{entry}</option>
                         ))}
                       </select>
@@ -683,7 +640,7 @@ function App() {
                             }))
                           }
                         >
-                          {palette.filter((p) => p !== "light_blue").map((entry) => (
+                          {extraPalette.map((entry) => (
                             <option key={entry} value={entry}>{entry}</option>
                           ))}
                         </select>
@@ -751,18 +708,19 @@ function App() {
                 <button
                   className="danger"
                   onClick={() =>
-                    updateTemplate((draft) => ({
-                      ...draft,
-                      courses: draft.courses
-                        .map((group) => ({ ...group, seances: group.seances.filter((s) => s.id !== selectedSession.sessionId) }))
-                        .filter((group) => group.seances.length > 0),
-                      disponibilites: draft.disponibilites
-                        .map((group) => ({ ...group, seances: group.seances.filter((s) => s.id !== selectedSession.sessionId) }))
-                        .filter((group) => group.seances.length > 0),
-                      extras: draft.extras
-                        .map((group) => ({ ...group, seances: group.seances.filter((s) => s.id !== selectedSession.sessionId) }))
-                        .filter((group) => group.seances.length > 0),
-                    }))
+                    updateTemplate((draft) => {
+                      for (const type of ["course", "availability", "extra"] as const) {
+                        updateGroupCollection(draft, type, (groups) =>
+                          groups
+                            .map((group) => ({
+                              ...group,
+                              seances: group.seances.filter((s) => s.id !== selectedSession.sessionId),
+                            }))
+                            .filter((group) => group.seances.length > 0),
+                        );
+                      }
+                      return draft;
+                    })
                   }
                 >
                   Delete séance
@@ -803,7 +761,7 @@ function App() {
                       top: `${top}px`,
                       left: `${left}px`,
                       height: `${height - 4}px`,
-                      background: colorMap[session.color],
+                      background: PALETTE_COLORS[session.color],
                     }}
                     onPointerDown={(event) => onDragStart(event, session)}
                     onClick={() => setActiveBlockId(session.sessionId)}

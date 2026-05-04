@@ -3,7 +3,7 @@ import path from "node:path";
 import toml from "toml";
 import { nanoid } from "nanoid";
 import { upsertTemplate, ROOT } from "./store.js";
-import type { Day, Palette, TeacherTemplate } from "./types.js";
+import type { Day, Palette, TeacherTemplate } from "./template-contract.js";
 
 interface RawToml {
   nom: string;

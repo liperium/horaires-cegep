@@ -2,8 +2,8 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { nanoid } from "nanoid";
-import { zTeacherTemplate } from "./schema.js";
-import type { Day, Palette, TeacherTemplate } from "./types.js";
+import { zTeacherTemplate } from "./template-contract.js";
+import type { Day, Palette, TeacherTemplate } from "./template-contract.js";
 
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(moduleDir, "..", "..");

@@ -1,12 +1,16 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { DAYS, PALETTE_COLORS } from "./template-contract.js";
 import { ROOT } from "./store.js";
 function shellEscape(value) {
     return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 function buildToml(template) {
     const lines = [];
+    lines.push(`jours = [${DAYS.map((day) => `"${day}"`).join(", ")}]`);
+    lines.push("");
+    lines.push(`session = "${shellEscape(template.session)}"`);
     lines.push(`nom = "${shellEscape(template.profile.nom)}"`);
     lines.push(`titre = "${shellEscape(template.profile.titre)}"`);
     lines.push(`courriel = "${shellEscape(template.profile.courriel)}"`);
@@ -52,6 +56,11 @@ function buildToml(template) {
             lines.push(`fin = ${session.endHour}`);
             lines.push("");
         }
+    }
+    lines.push("");
+    lines.push("[palette]");
+    for (const [name, hex] of Object.entries(PALETTE_COLORS)) {
+        lines.push(`${name} = "${hex}"`);
     }
     return lines.join("\n");
 }

@@ -7,19 +7,14 @@
   let headerblue = rgb(32, 113, 182)
   let dispoBlue  = rgb(189, 215, 238)
 
-  let palette = (
-    orange: rgb(247, 148, 29),
-    blue:   rgb(0, 162, 232),
-    green:  rgb(76, 175, 80),
-    purple: rgb(156, 89, 182),
-    red:    rgb(211, 47, 47),
-    pink:   rgb(233, 30, 99),
-    yellow: rgb(251, 192, 45),
-    teal:   rgb(0, 150, 136),
-    grey:   rgb(120, 120, 120),
-  )
+  let palette = data.at("palette", default: ())
 
-  let resolve-color(c) = if type(c) == str { palette.at(c) } else { c }
+  let resolve-color(c) = {
+    if type(c) != str { return c }
+    let resolved = palette.at(c, default: c)
+    if type(resolved) == str { return rgb(resolved) }
+    resolved
+  }
 
   // ----- Unpack config -------------------------------------------------------
   let nom                = data.nom
@@ -33,7 +28,7 @@
   let derniere-heure     = data.derniere_heure
 
   // ----- Build occupancy grid ------------------------------------------------
-  let jours  = ("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi")
+  let jours  = data.at("jours", default: ("Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"))
   let n-rows = derniere-heure - premiere-heure
 
   let place-block(g, day, start, end, fill, body, text-col: white) = {

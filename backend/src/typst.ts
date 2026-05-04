@@ -1,7 +1,8 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import type { TeacherTemplate } from "./types.js";
+import { DAYS, PALETTE_COLORS } from "./template-contract.js";
+import type { TeacherTemplate } from "./template-contract.js";
 import { ROOT } from "./store.js";
 
 function shellEscape(value: string): string {
@@ -10,6 +11,8 @@ function shellEscape(value: string): string {
 
 function buildToml(template: TeacherTemplate): string {
   const lines: string[] = [];
+  lines.push(`jours = [${DAYS.map((day) => `"${day}"`).join(", ")}]`);
+  lines.push("");
   lines.push(`session = "${shellEscape(template.session)}"`);
   lines.push(`nom = "${shellEscape(template.profile.nom)}"`);
   lines.push(`titre = "${shellEscape(template.profile.titre)}"`);
@@ -59,6 +62,12 @@ function buildToml(template: TeacherTemplate): string {
       lines.push(`fin = ${session.endHour}`);
       lines.push("");
     }
+  }
+
+  lines.push("");
+  lines.push("[palette]");
+  for (const [name, hex] of Object.entries(PALETTE_COLORS)) {
+    lines.push(`${name} = "${hex}"`);
   }
 
   return lines.join("\n");

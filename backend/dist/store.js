@@ -1,17 +1,32 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { nanoid } from "nanoid";
-import { zTemplateStore, zTeacherTemplate } from "./schema.js";
+import { zTeacherTemplate } from "./template-contract.js";
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
-const ROOT = path.resolve(moduleDir, "..", "..");
-const DATA_DIR = path.join(ROOT, "data");
-const DATA_FILE = path.join(DATA_DIR, "templates.json");
-const EMPTY_STORE = { templates: [] };
+export const ROOT = path.resolve(moduleDir, "..", "..");
+export const TEACHERS_DIR = path.join(ROOT, "teachers");
+function templatePath(teacherKey) {
+    return path.join(TEACHERS_DIR, teacherKey, "template.json");
+}
+export function pdfPath(teacherKey) {
+    return path.join(TEACHERS_DIR, teacherKey, "horaire.pdf");
+}
+function migrateDispoColors(template) {
+    if (!template.disponibilites.some((d) => d.couleur === "blue"))
+        return template;
+    return {
+        ...template,
+        disponibilites: template.disponibilites.map((d) => ({
+            ...d,
+            couleur: d.couleur === "blue" ? "light_blue" : d.couleur,
+        })),
+    };
+}
 function normalizeLegacyTemplate(raw) {
     const asCurrent = zTeacherTemplate.safeParse(raw);
     if (asCurrent.success) {
-        return asCurrent.data;
+        return migrateDispoColors(asCurrent.data);
     }
     const legacy = raw;
     const blocks = legacy.blocks ?? [];
@@ -69,6 +84,7 @@ function normalizeLegacyTemplate(raw) {
     const normalized = {
         id: legacy.id,
         teacherKey: legacy.teacherKey,
+        session: legacy.session ?? "Hiver 2026",
         profile: legacy.profile,
         startHour: legacy.startHour,
         endHour: legacy.endHour,
@@ -77,49 +93,44 @@ function normalizeLegacyTemplate(raw) {
         extras: Array.from(extraMap.values()),
         version: legacy.version,
     };
-    return zTeacherTemplate.parse(normalized);
-}
-async function ensureStoreFile() {
-    await mkdir(DATA_DIR, { recursive: true });
-    try {
-        await readFile(DATA_FILE, "utf8");
-    }
-    catch {
-        await writeFile(DATA_FILE, JSON.stringify(EMPTY_STORE, null, 2), "utf8");
-    }
-}
-export async function readStore() {
-    await ensureStoreFile();
-    const content = await readFile(DATA_FILE, "utf8");
-    const parsed = JSON.parse(content);
-    const normalized = {
-        templates: (parsed.templates ?? []).map((template) => normalizeLegacyTemplate(template)),
-    };
-    return zTemplateStore.parse(normalized);
-}
-export async function writeStore(store) {
-    zTemplateStore.parse(store);
-    await writeFile(DATA_FILE, JSON.stringify(store, null, 2), "utf8");
+    return migrateDispoColors(zTeacherTemplate.parse(normalized));
 }
 export async function listTemplates() {
-    const store = await readStore();
-    return store.templates;
+    let entries;
+    try {
+        entries = await readdir(TEACHERS_DIR);
+    }
+    catch {
+        return [];
+    }
+    const templates = [];
+    for (const entry of entries) {
+        try {
+            const content = await readFile(templatePath(entry), "utf8");
+            templates.push(normalizeLegacyTemplate(JSON.parse(content)));
+        }
+        catch {
+            // no template.json for this teacher directory
+        }
+    }
+    return templates;
 }
 export async function getTemplate(teacherKey) {
-    const templates = await listTemplates();
-    return templates.find((template) => template.teacherKey === teacherKey);
+    try {
+        const content = await readFile(templatePath(teacherKey), "utf8");
+        return normalizeLegacyTemplate(JSON.parse(content));
+    }
+    catch {
+        return undefined;
+    }
 }
 export async function upsertTemplate(template) {
     const parsed = zTeacherTemplate.parse(template);
-    const store = await readStore();
-    const index = store.templates.findIndex((entry) => entry.teacherKey === parsed.teacherKey);
-    if (index >= 0) {
-        store.templates[index] = parsed;
-    }
-    else {
-        store.templates.push(parsed);
-    }
-    await writeStore(store);
+    await mkdir(path.join(TEACHERS_DIR, parsed.teacherKey), { recursive: true });
+    await writeFile(templatePath(parsed.teacherKey), JSON.stringify(parsed, null, 2), "utf8");
     return parsed;
 }
-export { DATA_FILE, DATA_DIR, ROOT };
+export async function savePdf(teacherKey, buffer) {
+    await mkdir(path.join(TEACHERS_DIR, teacherKey), { recursive: true });
+    await writeFile(pdfPath(teacherKey), buffer);
+}
