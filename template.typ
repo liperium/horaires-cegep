@@ -2,8 +2,6 @@
 // Horaire - Typst template (shared layout — do not edit)
 // =============================================================================
 
-#let session = "Session Hiver 2026"
-
 #let render(data) = {
   // ----- Colors --------------------------------------------------------------
   let headerblue = rgb(32, 113, 182)
@@ -28,8 +26,8 @@
   let titre              = data.titre
   let courriel           = data.courriel
   let contact-preference = data.contact_preference
-  let courses            = data.courses
-  let disponibilites     = data.disponibilites
+  let courses            = data.at("courses", default: ())
+  let disponibilites     = data.at("disponibilites", default: ())
   let extras             = data.at("extras", default: ())
   let premiere-heure     = data.premiere_heure
   let derniere-heure     = data.derniere_heure
@@ -169,7 +167,7 @@
   v(0.8cm)
 
   // SESSION TITLE
-  text(size: 17pt, weight: "bold", fill: headerblue)[#session]
+  text(size: 17pt, weight: "bold", fill: headerblue)[Session #data.at("session", default: "Hiver 2026")]
   v(-0.2cm)
   line(length: 100%, stroke: 2pt + headerblue)
 

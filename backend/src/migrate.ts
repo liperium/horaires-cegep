@@ -41,6 +41,7 @@ async function runMigration(): Promise<void> {
     const template: TeacherTemplate = {
       id: nanoid(12),
       teacherKey,
+      session: (parsed as { session?: string }).session ?? "Hiver 2026",
       profile: {
         nom: parsed.nom,
         titre: parsed.titre,

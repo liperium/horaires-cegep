@@ -22,6 +22,7 @@ export const zTeacherTemplate = z
   .object({
     id: z.string().min(1),
     teacherKey: z.string().min(1),
+    session: z.string().min(1).default("Hiver 2026"),
     profile: z.object({
       nom: z.string().min(1),
       titre: z.string().min(1),

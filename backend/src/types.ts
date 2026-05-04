@@ -2,6 +2,7 @@ export const DAYS = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi"] as const
 export const PALETTE = [
   "orange",
   "blue",
+  "light_blue",
   "green",
   "purple",
   "red",
@@ -61,6 +62,7 @@ export interface TemplateVersion {
 export interface TeacherTemplate {
   id: string;
   teacherKey: string;
+  session: string;
   profile: TeacherProfile;
   startHour: number;
   endHour: number;
@@ -70,6 +72,3 @@ export interface TeacherTemplate {
   version: TemplateVersion;
 }
 
-export interface TemplateStore {
-  templates: TeacherTemplate[];
-}

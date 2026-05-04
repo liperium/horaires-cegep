@@ -3,7 +3,7 @@ import cors from "cors";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { zTeacherTemplate } from "./schema.js";
-import { getTemplate, listTemplates, upsertTemplate } from "./store.js";
+import { getTemplate, listTemplates, savePdf, upsertTemplate } from "./store.js";
 import { renderPdf } from "./typst.js";
 
 const app = express();
@@ -68,7 +68,11 @@ app.post("/api/templates/:teacherKey/render", async (req, res) => {
   }
 
   try {
-    const pdf = await renderPdf(bodyTemplate.data);
+    const [pdf] = await Promise.all([
+      renderPdf(bodyTemplate.data),
+      upsertTemplate(bodyTemplate.data),
+    ]);
+    await savePdf(bodyTemplate.data.teacherKey, pdf);
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader(
       "Content-Disposition",

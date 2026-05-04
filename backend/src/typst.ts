@@ -10,6 +10,7 @@ function shellEscape(value: string): string {
 
 function buildToml(template: TeacherTemplate): string {
   const lines: string[] = [];
+  lines.push(`session = "${shellEscape(template.session)}"`);
   lines.push(`nom = "${shellEscape(template.profile.nom)}"`);
   lines.push(`titre = "${shellEscape(template.profile.titre)}"`);
   lines.push(`courriel = "${shellEscape(template.profile.courriel)}"`);

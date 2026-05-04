@@ -1,0 +1,62 @@
+nom = "Mattys Gervais"
+titre = "Enseignant"
+courriel = "MattysGervais@cegepjonquiere.ca"
+contact_preference = "Préférablement par Teams"
+
+premiere_heure = 8
+derniere_heure = 20
+
+[[courses]]
+code = "420-KUA-JQ"
+nom = "Programmation avancé"
+local = "331.1"
+couleur = "orange"
+
+[[courses.seances]]
+jour = "Jeudi"
+debut = 8
+fin = 12
+groupe = "Gr.20"
+
+[[courses.seances]]
+jour = "Vendredi"
+debut = 8
+fin = 12
+groupe = "Gr.10"
+
+[[courses]]
+code = "420-ZQA-JQ"
+nom = "Gestion de fichiers"
+local = "716.1"
+couleur = "blue"
+
+[[courses.seances]]
+jour = "Lundi"
+debut = 13
+fin = 17
+groupe = "Gr.20"
+
+[[courses.seances]]
+jour = "Mardi"
+debut = 13
+fin = 17
+groupe = "Gr.10"
+
+[[disponibilites]]
+jour = "Mardi"
+debut = 8
+fin = 12
+
+[[disponibilites]]
+jour = "Jeudi"
+debut = 13
+fin = 17
+
+[[extras]]
+label = "Cours UQAC"
+couleur = "red"
+
+[[extras.seances]]
+jour = "Vendredi"
+debut = 13
+fin = 17
