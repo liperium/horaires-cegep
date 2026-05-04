@@ -15,7 +15,7 @@
 // ----- Personal info ---------------------------------------------------------
 #let nom      = "Mattys Gervais"
 #let titre    = "Enseignant"
-#let session  = "Session Hiver 2026"
+#let session  = "Session: Hiver 2026"
 #let courriel = "MattysGervais@cegepjonquiere.ca"
 #let contact-preference = [Préférablement *par Teams*]
 

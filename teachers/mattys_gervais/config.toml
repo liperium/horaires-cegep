@@ -6,7 +6,7 @@ contact_preference  = "Préférablement par Teams"
 
 # ─── Plage horaire ────────────────────────────────────────────────────────────
 premiere_heure = 8   # première heure affichée sur la grille
-derniere_heure = 20  # la grille se termine ici (la dernière étiquette est ce nombre - 1)
+derniere_heure = 17  # la grille se termine ici (la dernière étiquette est ce nombre - 1)
 
 # ─── Cours (jusqu'à 4) ────────────────────────────────────────────────────────
 # couleur : "orange" | "blue" | "green" | "purple" | "red" | "pink" | "yellow" | "teal" | "grey"

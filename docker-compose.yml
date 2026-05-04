@@ -1,0 +1,9 @@
+services:
+  horaires:
+    build: .
+    volumes:
+      - ./teachers:/repo/teachers
+    environment:
+      DEBOUNCE: "0.5"
+    restart: unless-stopped
+    tty: true
