@@ -1,9 +1,11 @@
 import express from "express";
 import cors from "cors";
+import { access, readFile } from "node:fs/promises";
+import path from "node:path";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 import { zTeacherTemplate } from "./template-contract.js";
-import { getTemplate, listTemplates, savePdf, upsertTemplate } from "./store.js";
+import { ROOT, TEACHERS_DIR, getTemplate, listTemplates, savePdf, upsertTemplate } from "./store.js";
 import { renderPdf } from "./typst.js";
 
 const app = express();
@@ -14,6 +16,19 @@ app.use(express.json({ limit: "1mb" }));
 
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
+});
+
+app.get("/api/access-token", async (_req, res) => {
+  try {
+    const token = (await readFile(path.join(TEACHERS_DIR, "token.txt"), "utf8")).trim();
+    if (!token) {
+      res.status(500).json({ error: "teachers/token.txt is empty" });
+      return;
+    }
+    res.json({ token });
+  } catch {
+    res.status(500).json({ error: "teachers/token.txt is missing" });
+  }
 });
 
 app.get("/api/templates", async (_req, res) => {
@@ -89,6 +104,18 @@ app.post("/api/bootstrap/migrate", async (_req, res) => {
   // Avoid importing migrate script side effects; run command from UI setup when needed.
   res.status(501).json({ error: "Run `npm run migrate` in backend to import TOML data." });
 });
+
+const frontendDist = path.join(ROOT, "frontend", "dist");
+void access(path.join(frontendDist, "index.html"))
+  .then(() => {
+    app.use(express.static(frontendDist));
+    app.get(/^(?!\/api\/).*/, (_req, res) => {
+      res.sendFile(path.join(frontendDist, "index.html"));
+    });
+  })
+  .catch(() => {
+    // Frontend build missing (dev mode); API-only server behavior.
+  });
 
 app.use((_req, res) => {
   res.status(404).json({ error: "Not found" });

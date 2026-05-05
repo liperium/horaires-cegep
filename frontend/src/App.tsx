@@ -6,8 +6,6 @@ import {
   DAYS,
   PALETTE_COLORS,
   PALETTE,
-  zTeacherTemplate,
-  zTemplateListResponse,
 } from "../../backend/src/template-contract.ts";
 import type {
   Availability,
@@ -18,10 +16,13 @@ import type {
   Session,
   TeacherTemplate,
 } from "../../backend/src/template-contract.ts";
+import { getAccessToken, getTemplate, listTemplates, renderTemplatePdf, saveTemplate } from "./api/templates.ts";
+import type { TemplateListItem } from "./api/templates.ts";
+import { useTemplateEditor } from "./hooks/useTemplateEditor.ts";
+import { allGroups, removeSessionEverywhere } from "./template-groups.ts";
+import type { GroupType } from "./template-groups.ts";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url).href;
-
-type GroupType = "course" | "availability" | "extra";
 
 interface SessionRef {
   sessionId: string;
@@ -35,9 +36,6 @@ interface SessionRef {
   lane: number;
 }
 
-type TemplateListItem = { teacherKey: string; nom: string };
-type Group = Course | Availability | Extra;
-
 const days: Day[] = [...DAYS];
 const palette: Palette[] = [...PALETTE];
 const coursePalette = palette.filter((p) => p !== "light_blue" && p !== "grey" && p !== "red");
@@ -45,23 +43,9 @@ const extraPalette: Palette[] = ["grey", "red"];
 
 const hourPx = 46;
 
-function allGroups(template: Pick<TeacherTemplate, "courses" | "disponibilites" | "extras">): Group[] {
-  return [...template.courses, ...template.disponibilites, ...template.extras];
-}
-
-function updateGroupCollection(
-  draft: TeacherTemplate,
-  groupType: GroupType,
-  updater: (groups: Group[]) => Group[],
-): TeacherTemplate {
-  if (groupType === "course") {
-    draft.courses = updater(draft.courses) as Course[];
-  } else if (groupType === "availability") {
-    draft.disponibilites = updater(draft.disponibilites) as Availability[];
-  } else {
-    draft.extras = updater(draft.extras) as Extra[];
-  }
-  return draft;
+function getTokenFromPathname(pathname: string): string | null {
+  const token = pathname.split("/").filter(Boolean)[0] ?? "";
+  return token.trim() ? token : null;
 }
 
 function toTeacherKey(name: string): string {
@@ -106,79 +90,147 @@ function newExtra(): Extra {
 }
 
 function App() {
+  const [accessToken] = useState<string | null>(() => getTokenFromPathname(window.location.pathname));
+  const [isTokenValidated, setIsTokenValidated] = useState(false);
+  const [tokenError, setTokenError] = useState<string | null>(null);
   const [templates, setTemplates] = useState<TemplateListItem[]>([]);
   const [selectedTeacher, setSelectedTeacher] = useState<string>("");
-  const [template, setTemplate] = useState<TeacherTemplate | null>(null);
+  const { template, history, future, setLoadedTemplate, updateTemplate, updateSession, updateGroup, undo, redo } = useTemplateEditor();
   const [activeBlockId, setActiveBlockId] = useState<string | null>(null);
-  const [history, setHistory] = useState<TeacherTemplate[]>([]);
-  const [future, setFuture] = useState<TeacherTemplate[]>([]);
   const [loading, setLoading] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [autoRenderStatus, setAutoRenderStatus] = useState("Idle");
+  const [dragPreview, setDragPreview] = useState<{
+    sessionId: string;
+    day: Day;
+    startHour: number;
+    endHour: number;
+  } | null>(null);
   const [creatingTeacher, setCreatingTeacher] = useState(false);
   const [newTeacherName, setNewTeacherName] = useState("");
   const [profilOpen, setProfilOpen] = useState(true);
   const [coursOpen, setCoursOpen] = useState(true);
   const firstLoadDoneRef = useRef(false);
+  const saveAbortRef = useRef<AbortController | null>(null);
+  const renderAbortRef = useRef<AbortController | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfBlobRef = useRef<Blob | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (!accessToken) {
+      setTokenError("Access denied: token is missing in URL path.");
+      setIsTokenValidated(false);
+      return;
+    }
+    const controller = new AbortController();
+    async function validateToken(): Promise<void> {
+      try {
+        const expectedToken = await getAccessToken(controller.signal);
+        if (expectedToken !== accessToken) {
+          setTokenError("Access denied: invalid token.");
+          setIsTokenValidated(false);
+          return;
+        }
+        setTokenError(null);
+        setIsTokenValidated(true);
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setTokenError(error instanceof Error ? error.message : "Unable to validate token");
+          setIsTokenValidated(false);
+        }
+      }
+    }
+    void validateToken();
+    return () => controller.abort();
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!isTokenValidated) return;
+    const controller = new AbortController();
     async function loadList(): Promise<void> {
-      const response = await fetch("/api/templates");
-      const data = zTemplateListResponse.parse(await response.json());
-      setTemplates(data);
-      if (data[0]) {
-        setSelectedTeacher(data[0].teacherKey);
+      try {
+        const data = await listTemplates(controller.signal);
+        setTemplates(data);
+        if (data[0]) {
+          setSelectedTeacher(data[0].teacherKey);
+        }
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setRenderError(error instanceof Error ? error.message : "Unable to load templates");
+        }
       }
     }
     void loadList();
-  }, []);
+    return () => controller.abort();
+  }, [isTokenValidated]);
 
   useEffect(() => {
-    if (!selectedTeacher) {
+    if (!isTokenValidated || !selectedTeacher) {
       return;
     }
+    const controller = new AbortController();
     async function loadTemplate(): Promise<void> {
       setLoading(true);
-      const response = await fetch(`/api/templates/${selectedTeacher}`);
-      const data = zTeacherTemplate.parse(await response.json());
-      setTemplate(data);
-      setHistory([]);
-      setFuture([]);
-      setActiveBlockId(null);
-      firstLoadDoneRef.current = false;
-      setLoading(false);
+      try {
+        const data = await getTemplate(selectedTeacher, controller.signal);
+        setLoadedTemplate(data);
+        setActiveBlockId(null);
+        firstLoadDoneRef.current = false;
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setRenderError(error instanceof Error ? error.message : "Unable to load template");
+        }
+      } finally {
+        setLoading(false);
+      }
     }
     void loadTemplate();
-  }, [selectedTeacher]);
+    return () => controller.abort();
+  }, [isTokenValidated, selectedTeacher, setLoadedTemplate]);
 
   const flatSessions = useMemo(() => {
     if (!template) return [] as SessionRef[];
-    const toSessionRefs = <T extends Group>(groups: T[], groupType: GroupType, labelFrom: (group: T) => string) =>
-      groups.flatMap((group) =>
-        group.seances.map((session) => ({
+    const toSessionRefs = (
+      groups: Array<{ id: string; couleur: Palette; seances: Session[]; nom?: string; label?: string }>,
+      groupType: GroupType,
+      labelKey: "nom" | "label",
+    ) =>
+      groups.flatMap((group) => group.seances.map((session) => {
+        const preview = dragPreview?.sessionId === session.id ? dragPreview : null;
+        return {
           sessionId: session.id,
           groupId: group.id,
           groupType,
-          label: labelFrom(group),
+          label: group[labelKey] ?? "",
           color: group.couleur,
-          day: session.day,
-          startHour: session.startHour,
-          endHour: session.endHour,
+          day: preview?.day ?? session.day,
+          startHour: preview?.startHour ?? session.startHour,
+          endHour: preview?.endHour ?? session.endHour,
           lane: session.lane,
-        })),
-      );
+        };
+      }));
 
     return [
-      ...toSessionRefs(template.courses, "course", (group) => group.nom),
-      ...toSessionRefs(template.disponibilites, "availability", (group) => group.label),
-      ...toSessionRefs(template.extras, "extra", (group) => group.label),
+      ...toSessionRefs(template.courses, "course", "nom"),
+      ...toSessionRefs(template.disponibilites, "availability", "label"),
+      ...toSessionRefs(template.extras, "extra", "label"),
     ];
-  }, [template]);
+  }, [dragPreview, template]);
   const hourCount = template ? template.endHour - template.startHour : 0;
+  const gridHours = useMemo(
+    () => Array.from({ length: hourCount }, (_, i) => (template ? template.startHour + i : i)),
+    [hourCount, template],
+  );
+  const startHourOptions = useMemo(
+    () => (template ? Array.from({ length: template.endHour - template.startHour }, (_, i) => template.startHour + i) : []),
+    [template],
+  );
+  const endHourOptions = useMemo(
+    () => (template ? Array.from({ length: template.endHour - template.startHour }, (_, i) => template.startHour + 1 + i) : []),
+    [template],
+  );
   const selectedSession = useMemo(
     () => flatSessions.find((session) => session.sessionId === activeBlockId) ?? null,
     [activeBlockId, flatSessions],
@@ -197,38 +249,8 @@ function App() {
     return null;
   }, [selectedSession, template]);
 
-  function updateSession(sessionId: string, updater: (s: Session) => Session): void {
-    updateTemplate((draft) => {
-      for (const group of allGroups(draft)) {
-        const idx = group.seances.findIndex((s) => s.id === sessionId);
-        if (idx !== -1) {
-          group.seances[idx] = updater(group.seances[idx]);
-          draft.version = { timestamp: new Date().toISOString(), note: "Edited in web app" };
-          return draft;
-        }
-      }
-      return draft;
-    });
-  }
-
-  function updateGroup(groupType: GroupType, groupId: string, updater: (current: Course | Availability | Extra) => Course | Availability | Extra): void {
-    updateTemplate((draft) => {
-      updateGroupCollection(draft, groupType, (groups) =>
-        groups.map((group) => (group.id === groupId ? updater(group) : group)),
-      );
-      draft.version = { timestamp: new Date().toISOString(), note: "Edited in web app" };
-      return draft;
-    });
-  }
-
-  function updateTemplate(mutator: (draft: TeacherTemplate) => TeacherTemplate): void {
-    if (!template) return;
-    setHistory((current) => [...current, template]);
-    setFuture([]);
-    setTemplate(mutator(structuredClone(template)));
-  }
-
   function onDragStart(event: ReactPointerEvent<HTMLDivElement>, ref: SessionRef): void {
+    if (!template) return;
     const target = event.currentTarget;
     target.setPointerCapture(event.pointerId);
     const startY = event.clientY;
@@ -236,37 +258,29 @@ function App() {
     const blockStart = ref.startHour;
     const blockEnd = ref.endHour;
     const dayIndex = days.indexOf(ref.day);
+    const startHourLimit = template.startHour;
+    const endHourLimit = template.endHour;
+    let nextValues = { day: ref.day, startHour: ref.startHour, endHour: ref.endHour };
 
     function onMove(moveEvent: PointerEvent): void {
       const deltaYHours = Math.round((moveEvent.clientY - startY) / hourPx);
       const deltaDays = Math.round((moveEvent.clientX - startX) / 130);
       const duration = blockEnd - blockStart;
       const nextDayIndex = clamp(dayIndex + deltaDays, 0, days.length - 1);
-      const nextStart = clamp(blockStart + deltaYHours, template!.startHour, template!.endHour - duration);
+      const nextStart = clamp(blockStart + deltaYHours, startHourLimit, endHourLimit - duration);
       const nextEnd = nextStart + duration;
-      setTemplate((current) => {
-        if (!current) return current;
-        const clone = structuredClone(current);
-        for (const group of allGroups(clone)) {
-          const session = group.seances.find((entry) => entry.id === ref.sessionId);
-          if (session) {
-            session.day = days[nextDayIndex];
-            session.startHour = nextStart;
-            session.endHour = nextEnd;
-            break;
-          }
-        }
-        return clone;
+      nextValues = { day: days[nextDayIndex], startHour: nextStart, endHour: nextEnd };
+      setDragPreview({
+        sessionId: ref.sessionId,
+        ...nextValues,
       });
     }
 
     function onUp(): void {
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
-      if (template) {
-        setHistory((current) => [...current, structuredClone(template)]);
-        setFuture([]);
-      }
+      updateSession(ref.sessionId, (session) => ({ ...session, ...nextValues }));
+      setDragPreview(null);
     }
 
     target.addEventListener("pointermove", onMove);
@@ -274,36 +288,33 @@ function App() {
   }
 
   function onResizeStart(event: ReactPointerEvent<HTMLDivElement>, ref: SessionRef): void {
+    if (!template) return;
     event.stopPropagation();
     const target = event.currentTarget;
     target.setPointerCapture(event.pointerId);
     const startY = event.clientY;
     const initialEnd = ref.endHour;
+    const startHourLimit = template.startHour;
+    const endHourLimit = template.endHour;
+    let nextEndHour = ref.endHour;
 
     function onMove(moveEvent: PointerEvent): void {
       const deltaY = moveEvent.clientY - startY;
-      const next = nextHourFromY((initialEnd - template!.startHour) * hourPx + deltaY, template!.startHour, template!.endHour);
-      setTemplate((current) => {
-        if (!current) return current;
-        const clone = structuredClone(current);
-        for (const group of allGroups(clone)) {
-          const session = group.seances.find((entry) => entry.id === ref.sessionId);
-          if (session) {
-            session.endHour = Math.max(session.startHour + 1, next);
-            break;
-          }
-        }
-        return clone;
+      const next = nextHourFromY((initialEnd - startHourLimit) * hourPx + deltaY, startHourLimit, endHourLimit);
+      nextEndHour = Math.max(ref.startHour + 1, next);
+      setDragPreview({
+        sessionId: ref.sessionId,
+        day: ref.day,
+        startHour: ref.startHour,
+        endHour: nextEndHour,
       });
     }
 
     function onUp(): void {
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
-      if (template) {
-        setHistory((current) => [...current, structuredClone(template)]);
-        setFuture([]);
-      }
+      updateSession(ref.sessionId, (session) => ({ ...session, endHour: Math.max(session.startHour + 1, nextEndHour) }));
+      setDragPreview(null);
     }
 
     target.addEventListener("pointermove", onMove);
@@ -311,32 +322,15 @@ function App() {
   }
 
 
-  async function saveTemplate(t: TeacherTemplate): Promise<void> {
-    await fetch("/api/templates", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(t),
-    });
-  }
-
-  async function renderPdfAndPreview(): Promise<void> {
-    if (!template || !canvasRef.current) return;
+  async function renderPdfAndPreview(templateToRender: TeacherTemplate): Promise<void> {
+    if (!canvasRef.current) return;
+    renderAbortRef.current?.abort();
+    const controller = new AbortController();
+    renderAbortRef.current = controller;
     setRendering(true);
     setRenderError(null);
     try {
-      const response = await fetch(`/api/templates/${template.teacherKey}/render`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(template),
-      });
-      if (!response.ok) {
-        const err = (await response.json()) as unknown;
-        const message = typeof err === "object" && err !== null && "error" in err ? (err as { error: unknown }).error : err;
-        setRenderError(typeof message === "string" ? message : JSON.stringify(message));
-        setAutoRenderStatus("Render failed");
-        return;
-      }
-      const blob = await response.blob();
+      const blob = await renderTemplatePdf(templateToRender.teacherKey, templateToRender, controller.signal);
       pdfBlobRef.current = blob;
       const arrayBuffer = await blob.arrayBuffer();
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -352,6 +346,9 @@ function App() {
       if (ctx) await page.render({ canvasContext: ctx, canvas, viewport }).promise;
       setAutoRenderStatus(`Rendered at ${new Date().toLocaleTimeString()}`);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        return;
+      }
       setRenderError(err instanceof Error ? err.message : "Unknown error");
       setAutoRenderStatus("Render failed");
     } finally {
@@ -363,16 +360,27 @@ function App() {
     if (!template) return;
     if (!firstLoadDoneRef.current) {
       firstLoadDoneRef.current = true;
-      void renderPdfAndPreview();
+      void renderPdfAndPreview(template);
       return;
     }
-    void saveTemplate(template);
     setAutoRenderStatus("Waiting for changes...");
+    saveAbortRef.current?.abort();
+    const saveController = new AbortController();
+    saveAbortRef.current = saveController;
     const handle = setTimeout(() => {
       setAutoRenderStatus("Auto-rendering...");
-      void renderPdfAndPreview();
-    }, 500);
-    return () => clearTimeout(handle);
+      void renderPdfAndPreview(template);
+    }, 600);
+    void saveTemplate(template, saveController.signal).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        setRenderError(error instanceof Error ? error.message : "Save failed");
+        setAutoRenderStatus("Save failed");
+      }
+    });
+    return () => {
+      clearTimeout(handle);
+      saveController.abort();
+    };
   }, [template]);
 
   function downloadPdf(): void {
@@ -402,38 +410,27 @@ function App() {
       extras: [{ ...newExtra(), seances: [{ id: crypto.randomUUID(), day: "Vendredi", startHour: 8, endHour: 10, lane: 0 }] }],
       version: { timestamp: new Date().toISOString(), note: "Created in web app" },
     };
-    await fetch("/api/templates", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(newTemplate),
-    });
-    const listRes = await fetch("/api/templates");
-    const data = zTemplateListResponse.parse(await listRes.json());
+    await saveTemplate(newTemplate);
+    const data = await listTemplates();
     setTemplates(data);
     setSelectedTeacher(teacherKey);
     setNewTeacherName("");
     setCreatingTeacher(false);
   }
 
-  function undo(): void {
-    if (history.length === 0 || !template) return;
-    const previous = history[history.length - 1];
-    setHistory((current) => current.slice(0, -1));
-    setFuture((current) => [template, ...current]);
-    setTemplate(previous);
-  }
-
-  function redo(): void {
-    if (future.length === 0 || !template) return;
-    const [next, ...rest] = future;
-    setFuture(rest);
-    setHistory((current) => [...current, template]);
-    setTemplate(next);
-  }
-
   if (loading) {
     return <main className="loading">Loading templates...</main>;
   }
+
+  if (tokenError) {
+    return (
+      <main className="loading">
+        <p>{tokenError}</p>
+        <p>Use a link like <code>/MYTOKEN</code>.</p>
+      </main>
+    );
+  }
+  if (!isTokenValidated) return <main className="loading">Validating access token...</main>;
 
   return (
     <main className="layout">
@@ -672,7 +669,7 @@ function App() {
                       }));
                     }}
                   >
-                    {Array.from({ length: template.endHour - template.startHour }, (_, i) => template.startHour + i).map((h) => (
+                    {startHourOptions.map((h) => (
                       <option key={h} value={h}>{h}h</option>
                     ))}
                   </select>
@@ -690,7 +687,7 @@ function App() {
                       }));
                     }}
                   >
-                    {Array.from({ length: template.endHour - template.startHour }, (_, i) => template.startHour + 1 + i).map((h) => (
+                    {endHourOptions.map((h) => (
                       <option key={h} value={h}>{h}h</option>
                     ))}
                   </select>
@@ -709,17 +706,7 @@ function App() {
                   className="danger"
                   onClick={() =>
                     updateTemplate((draft) => {
-                      for (const type of ["course", "availability", "extra"] as const) {
-                        updateGroupCollection(draft, type, (groups) =>
-                          groups
-                            .map((group) => ({
-                              ...group,
-                              seances: group.seances.filter((s) => s.id !== selectedSession.sessionId),
-                            }))
-                            .filter((group) => group.seances.length > 0),
-                        );
-                      }
-                      return draft;
+                      return removeSessionEverywhere(draft, selectedSession.sessionId);
                     })
                   }
                 >
@@ -741,9 +728,9 @@ function App() {
               ))}
             </div>
             <div className="gridCanvas" style={{ height: `${hourCount * hourPx}px` }}>
-              {Array.from({ length: hourCount }).map((_, idx) => (
-                <div key={idx} className="hourRow" style={{ top: `${idx * hourPx}px` }}>
-                  <span>{template.startHour + idx}h</span>
+              {gridHours.map((hour, idx) => (
+                <div key={hour} className="hourRow" style={{ top: `${idx * hourPx}px` }}>
+                  <span>{hour}h</span>
                 </div>
               ))}
 
@@ -782,7 +769,7 @@ function App() {
       <section className="rightPane">
         <header className="pdfToolbar">
           <h2>PDF Preview</h2>
-          <button onClick={renderPdfAndPreview} disabled={rendering}>
+          <button onClick={() => template && void renderPdfAndPreview(template)} disabled={rendering || !template}>
             {rendering ? "Rendering..." : "Refresh PDF"}
           </button>
           <button onClick={downloadPdf} disabled={!pdfBlobRef.current}>
