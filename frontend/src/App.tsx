@@ -40,6 +40,7 @@ const days: Day[] = [...DAYS];
 const palette: Palette[] = [...PALETTE];
 const coursePalette = palette.filter((p) => p !== "light_blue" && p !== "grey" && p !== "red");
 const extraPalette: Palette[] = ["grey", "red"];
+const LAST_TEACHER_KEY = "horaires-prof:last-teacher";
 
 const hourPx = 46;
 
@@ -100,7 +101,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [rendering, setRendering] = useState(false);
   const [renderError, setRenderError] = useState<string | null>(null);
-  const [autoRenderStatus, setAutoRenderStatus] = useState("Idle");
+  const [autoRenderStatus, setAutoRenderStatus] = useState("En attente");
   const [dragPreview, setDragPreview] = useState<{
     sessionId: string;
     day: Day;
@@ -111,16 +112,20 @@ function App() {
   const [newTeacherName, setNewTeacherName] = useState("");
   const [profilOpen, setProfilOpen] = useState(true);
   const [coursOpen, setCoursOpen] = useState(true);
+  const [leftPaneWidth, setLeftPaneWidth] = useState(62);
+  const [inspectorHidden, setInspectorHidden] = useState(false);
+  const [rightPaneHidden, setRightPaneHidden] = useState(false);
   const firstLoadDoneRef = useRef(false);
   const saveAbortRef = useRef<AbortController | null>(null);
   const renderAbortRef = useRef<AbortController | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewFrameRef = useRef<HTMLDivElement | null>(null);
   const pdfBlobRef = useRef<Blob | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!accessToken) {
-      setTokenError("Access denied: token is missing in URL path.");
+      setTokenError("Acces refuse : le jeton est absent de l'URL.");
       setIsTokenValidated(false);
       return;
     }
@@ -129,7 +134,7 @@ function App() {
       try {
         const expectedToken = await getAccessToken(controller.signal);
         if (expectedToken !== accessToken) {
-          setTokenError("Access denied: invalid token.");
+          setTokenError("Acces refuse : jeton invalide.");
           setIsTokenValidated(false);
           return;
         }
@@ -137,7 +142,7 @@ function App() {
         setIsTokenValidated(true);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setTokenError(error instanceof Error ? error.message : "Unable to validate token");
+          setTokenError(error instanceof Error ? error.message : "Impossible de valider le jeton");
           setIsTokenValidated(false);
         }
       }
@@ -153,18 +158,27 @@ function App() {
       try {
         const data = await listTemplates(controller.signal);
         setTemplates(data);
-        if (data[0]) {
-          setSelectedTeacher(data[0].teacherKey);
+        const savedTeacher = window.sessionStorage.getItem(LAST_TEACHER_KEY);
+        const preferredTeacher = savedTeacher && data.some((entry) => entry.teacherKey === savedTeacher)
+          ? savedTeacher
+          : data[0]?.teacherKey;
+        if (preferredTeacher) {
+          setSelectedTeacher(preferredTeacher);
         }
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setRenderError(error instanceof Error ? error.message : "Unable to load templates");
+          setRenderError(error instanceof Error ? error.message : "Impossible de charger les modeles");
         }
       }
     }
     void loadList();
     return () => controller.abort();
   }, [isTokenValidated]);
+
+  useEffect(() => {
+    if (!selectedTeacher) return;
+    window.sessionStorage.setItem(LAST_TEACHER_KEY, selectedTeacher);
+  }, [selectedTeacher]);
 
   useEffect(() => {
     if (!isTokenValidated || !selectedTeacher) {
@@ -180,7 +194,7 @@ function App() {
         firstLoadDoneRef.current = false;
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setRenderError(error instanceof Error ? error.message : "Unable to load template");
+          setRenderError(error instanceof Error ? error.message : "Impossible de charger le modele");
         }
       } finally {
         setLoading(false);
@@ -231,6 +245,8 @@ function App() {
     () => (template ? Array.from({ length: template.endHour - template.startHour }, (_, i) => template.startHour + 1 + i) : []),
     [template],
   );
+  const globalStartHourOptions = useMemo(() => Array.from({ length: 24 }, (_, i) => i), []);
+  const globalEndHourOptions = useMemo(() => Array.from({ length: 24 }, (_, i) => i + 1), []);
   const selectedSession = useMemo(
     () => flatSessions.find((session) => session.sessionId === activeBlockId) ?? null,
     [activeBlockId, flatSessions],
@@ -322,6 +338,24 @@ function App() {
   }
 
 
+  async function drawPdfBlobToCanvas(blob: Blob): Promise<void> {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const arrayBuffer = await blob.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const page = await pdf.getPage(1);
+    const containerWidth = previewFrameRef.current?.clientWidth ?? canvas.parentElement?.clientWidth ?? 600;
+    const unscaled = page.getViewport({ scale: 1 });
+    const scale = containerWidth / unscaled.width;
+    const viewport = page.getViewport({ scale });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      await page.render({ canvasContext: ctx, canvas, viewport }).promise;
+    }
+  }
+
   async function renderPdfAndPreview(templateToRender: TeacherTemplate): Promise<void> {
     if (!canvasRef.current) return;
     renderAbortRef.current?.abort();
@@ -332,29 +366,50 @@ function App() {
     try {
       const blob = await renderTemplatePdf(templateToRender.teacherKey, templateToRender, controller.signal);
       pdfBlobRef.current = blob;
-      const arrayBuffer = await blob.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      const page = await pdf.getPage(1);
-      const canvas = canvasRef.current;
-      const containerWidth = canvas.parentElement?.clientWidth ?? 600;
-      const unscaled = page.getViewport({ scale: 1 });
-      const scale = containerWidth / unscaled.width;
-      const viewport = page.getViewport({ scale });
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      const ctx = canvas.getContext("2d");
-      if (ctx) await page.render({ canvasContext: ctx, canvas, viewport }).promise;
-      setAutoRenderStatus(`Rendered at ${new Date().toLocaleTimeString()}`);
+      await drawPdfBlobToCanvas(blob);
+      setAutoRenderStatus(`Rendu a ${new Date().toLocaleTimeString()}`);
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         return;
       }
-      setRenderError(err instanceof Error ? err.message : "Unknown error");
-      setAutoRenderStatus("Render failed");
+      setRenderError(err instanceof Error ? err.message : "Erreur inconnue");
+      setAutoRenderStatus("Echec du rendu");
     } finally {
       setRendering(false);
     }
   }
+
+  useEffect(() => {
+    const frame = previewFrameRef.current;
+    if (!frame) return;
+    let timeout: number | undefined;
+    const observer = new ResizeObserver(() => {
+      if (!pdfBlobRef.current || rendering) return;
+      window.clearTimeout(timeout);
+      timeout = window.setTimeout(() => {
+        if (!pdfBlobRef.current) return;
+        void drawPdfBlobToCanvas(pdfBlobRef.current).catch(() => {
+          // Keep current preview if a resize-time rerender fails.
+        });
+      }, 120);
+    });
+    observer.observe(frame);
+    return () => {
+      if (timeout) window.clearTimeout(timeout);
+      observer.disconnect();
+    };
+  }, [rendering]);
+
+  useEffect(() => {
+    if (rightPaneHidden || rendering || !pdfBlobRef.current) return;
+    const handle = window.setTimeout(() => {
+      if (!pdfBlobRef.current) return;
+      void drawPdfBlobToCanvas(pdfBlobRef.current).catch(() => {
+        // Keep current preview if visibility-time rerender fails.
+      });
+    }, 80);
+    return () => window.clearTimeout(handle);
+  }, [rightPaneHidden, rendering]);
 
   useEffect(() => {
     if (!template) return;
@@ -363,18 +418,18 @@ function App() {
       void renderPdfAndPreview(template);
       return;
     }
-    setAutoRenderStatus("Waiting for changes...");
+    setAutoRenderStatus("En attente des changements...");
     saveAbortRef.current?.abort();
     const saveController = new AbortController();
     saveAbortRef.current = saveController;
     const handle = setTimeout(() => {
-      setAutoRenderStatus("Auto-rendering...");
+      setAutoRenderStatus("Rendu automatique...");
       void renderPdfAndPreview(template);
     }, 600);
     void saveTemplate(template, saveController.signal).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
-        setRenderError(error instanceof Error ? error.message : "Save failed");
-        setAutoRenderStatus("Save failed");
+        setRenderError(error instanceof Error ? error.message : "Echec de sauvegarde");
+        setAutoRenderStatus("Echec de sauvegarde");
       }
     });
     return () => {
@@ -404,11 +459,11 @@ function App() {
       session: "Hiver 2026",
       profile: { nom: name, titre: "Enseignant", courriel: `${emailBase}@cegepjonquiere.ca`, contactPreference: "Me contacter par Teams." },
       startHour: 8,
-      endHour: 18,
+      endHour: 20,
       courses: [{ id: crypto.randomUUID(), code: "420-XXX-JQ", nom: "Nouveau cours", local: "000.0", couleur: "orange", seances: [{ id: crypto.randomUUID(), day: "Lundi", startHour: 8, endHour: 10, lane: 0 }] }],
       disponibilites: [{ ...newAvailability(), seances: [{ id: crypto.randomUUID(), day: "Mercredi", startHour: 8, endHour: 10, lane: 0 }] }],
       extras: [{ ...newExtra(), seances: [{ id: crypto.randomUUID(), day: "Vendredi", startHour: 8, endHour: 10, lane: 0 }] }],
-      version: { timestamp: new Date().toISOString(), note: "Created in web app" },
+      version: { timestamp: new Date().toISOString(), note: "Cree dans l'application web" },
     };
     await saveTemplate(newTemplate);
     const data = await listTemplates();
@@ -418,25 +473,46 @@ function App() {
     setCreatingTeacher(false);
   }
 
+  function deleteSession(sessionId: string): void {
+    updateTemplate((draft) => removeSessionEverywhere(draft, sessionId));
+    if (activeBlockId === sessionId) {
+      setActiveBlockId(null);
+    }
+  }
+
+  function startPaneResize(event: ReactPointerEvent<HTMLDivElement>): void {
+    event.preventDefault();
+    function onMove(moveEvent: PointerEvent): void {
+      const next = (moveEvent.clientX / window.innerWidth) * 100;
+      setLeftPaneWidth(clamp(next, 28, 72));
+    }
+    function onUp(): void {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
   if (loading) {
-    return <main className="loading">Loading templates...</main>;
+    return <main className="loading">Chargement des modeles...</main>;
   }
 
   if (tokenError) {
     return (
       <main className="loading">
         <p>{tokenError}</p>
-        <p>Use a link like <code>/MYTOKEN</code>.</p>
+        <p>Utilisez un lien comme <code>/MONJETON</code>.</p>
       </main>
     );
   }
-  if (!isTokenValidated) return <main className="loading">Validating access token...</main>;
+  if (!isTokenValidated) return <main className="loading">Validation du jeton d'acces...</main>;
 
   return (
     <main className="layout">
-      <section className="leftPane">
+      <section className="leftPane" style={!rightPaneHidden ? { flex: `0 0 ${leftPaneWidth}%` } : { flex: 1 }}>
         <header className="toolbar">
-          <h1>Horaire Builder</h1>
+          <h1>DICJ Horaires</h1>
           <select value={selectedTeacher} onChange={(event) => setSelectedTeacher(event.target.value)}>
             {templates.map((entry) => (
               <option key={entry.teacherKey} value={entry.teacherKey}>
@@ -462,11 +538,11 @@ function App() {
           ) : (
             <button onClick={() => setCreatingTeacher(true)}>+ Prof.</button>
           )}
-          <button onClick={undo} disabled={history.length === 0}>
-            Undo
+          <button className="iconButton" onClick={undo} disabled={history.length === 0} title="Annuler" aria-label="Annuler">
+            ↶
           </button>
-          <button onClick={redo} disabled={future.length === 0}>
-            Redo
+          <button className="iconButton" onClick={redo} disabled={future.length === 0} title="Retablir" aria-label="Retablir">
+            ↷
           </button>
         </header>
 
@@ -474,8 +550,15 @@ function App() {
           <div className="loading">
             <p>Aucun professeur. Créer un avec <strong>+ Prof.</strong></p>
           </div>
-        ) : <div className="editorBody">
-          <aside className="inspector">
+        ) : <div className={`editorBody ${inspectorHidden ? "inspectorHidden" : ""}`}>
+          <button
+            className={`paneEdgeToggle iconButton left ${inspectorHidden ? "hidden" : ""}`}
+            onClick={() => setInspectorHidden((current) => !current)}
+            title={inspectorHidden ? "Afficher le panneau des proprietes" : "Masquer le panneau des proprietes"}
+          >
+            {inspectorHidden ? ">>" : "<<"}
+          </button>
+          {!inspectorHidden && <aside className="inspector">
             <div className="sectionToggle" onClick={() => setProfilOpen((o) => !o)}>
               Profil <span className="chevron">{profilOpen ? "▾" : "▸"}</span>
             </div>
@@ -488,6 +571,60 @@ function App() {
                     onChange={(event) => updateTemplate((draft) => ({ ...draft, session: event.target.value }))}
                   />
                 </label>
+                <div className="hourRangeRow">
+                  <span>Plage</span>
+                  <select
+                    value={template.startHour}
+                    onChange={(event) => {
+                      const nextStart = parseInt(event.target.value, 10);
+                      updateTemplate((draft) => {
+                        const nextEnd = Math.max(draft.endHour, nextStart + 1);
+                        const clampSessionToBounds = (session: Session): Session => {
+                          const start = clamp(session.startHour, nextStart, nextEnd - 1);
+                          const end = clamp(session.endHour, start + 1, nextEnd);
+                          return { ...session, startHour: start, endHour: end };
+                        };
+                        return {
+                          ...draft,
+                          startHour: nextStart,
+                          endHour: nextEnd,
+                          courses: draft.courses.map((group) => ({ ...group, seances: group.seances.map(clampSessionToBounds) })),
+                          disponibilites: draft.disponibilites.map((group) => ({ ...group, seances: group.seances.map(clampSessionToBounds) })),
+                          extras: draft.extras.map((group) => ({ ...group, seances: group.seances.map(clampSessionToBounds) })),
+                        };
+                      });
+                    }}
+                  >
+                    {globalStartHourOptions.map((h) => (
+                      <option key={h} value={h}>{h}h</option>
+                    ))}
+                  </select>
+                  <select
+                    value={template.endHour}
+                    onChange={(event) => {
+                      const nextEnd = parseInt(event.target.value, 10);
+                      updateTemplate((draft) => {
+                        const safeEnd = Math.max(nextEnd, draft.startHour + 1);
+                        const clampSessionToBounds = (session: Session): Session => {
+                          const start = clamp(session.startHour, draft.startHour, safeEnd - 1);
+                          const end = clamp(session.endHour, start + 1, safeEnd);
+                          return { ...session, startHour: start, endHour: end };
+                        };
+                        return {
+                          ...draft,
+                          endHour: safeEnd,
+                          courses: draft.courses.map((group) => ({ ...group, seances: group.seances.map(clampSessionToBounds) })),
+                          disponibilites: draft.disponibilites.map((group) => ({ ...group, seances: group.seances.map(clampSessionToBounds) })),
+                          extras: draft.extras.map((group) => ({ ...group, seances: group.seances.map(clampSessionToBounds) })),
+                        };
+                      });
+                    }}
+                  >
+                    {globalEndHourOptions.map((h) => (
+                      <option key={h} value={h}>{h}h</option>
+                    ))}
+                  </select>
+                </div>
                 <label>
                   Nom
                   <input
@@ -552,11 +689,26 @@ function App() {
                   }))
                 }
               >
-                + Extra
+                + Activite
               </button>
             </div>
             {selectedSession && selectedSessionObj ? (
               <div className="blockEditor">
+                <div className="sessionActionRow">
+                  <button
+                    onClick={() =>
+                      updateGroup(selectedSession.groupType, selectedSession.groupId, (group) => ({
+                        ...group,
+                        seances: [...group.seances, newSession()],
+                      }))
+                    }
+                  >
+                    + Séance
+                  </button>
+                  <button className="danger" onClick={() => deleteSession(selectedSession.sessionId)}>
+                    Supprimer la seance
+                  </button>
+                </div>
                 {selectedCourse ? (
                   <>
                     <div className="sectionLabel">Cours</div>
@@ -614,7 +766,7 @@ function App() {
                 ) : (
                   <>
                     <label>
-                      Label
+                      Libelle
                       <input
                         value={selectedSession.label}
                         onChange={(event) =>
@@ -692,33 +844,13 @@ function App() {
                     ))}
                   </select>
                 </label>
-                <button
-                  onClick={() =>
-                    updateGroup(selectedSession.groupType, selectedSession.groupId, (group) => ({
-                      ...group,
-                      seances: [...group.seances, newSession()],
-                    }))
-                  }
-                >
-                  + Séance
-                </button>
-                <button
-                  className="danger"
-                  onClick={() =>
-                    updateTemplate((draft) => {
-                      return removeSessionEverywhere(draft, selectedSession.sessionId);
-                    })
-                  }
-                >
-                  Delete séance
-                </button>
               </div>
             ) : (
-              <p>Select a seance to edit.</p>
+              <p>Sélectionnez une séance a modifier.</p>
             )}
             </>
             )}
-          </aside>
+          </aside>}
 
           <section className="grid" ref={gridRef}>
             <div className="dayHeader">
@@ -757,6 +889,17 @@ function App() {
                     <span>
                       {session.startHour}h - {session.endHour}h
                     </span>
+                    <button
+                      className="trashSessionBtn iconButton"
+                      title="Supprimer la seance"
+                      onPointerDown={(event) => event.stopPropagation()}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        deleteSession(session.sessionId);
+                      }}
+                    >
+                      🗑
+                    </button>
                     <div className="resizeHandle" onPointerDown={(event) => onResizeStart(event, session)} />
                   </div>
                 );
@@ -766,23 +909,58 @@ function App() {
         </div>}
       </section>
 
-      <section className="rightPane">
+      {!rightPaneHidden && (
+        <div className="paneDivider" onPointerDown={startPaneResize} />
+      )}
+
+      {!rightPaneHidden && (
+      <section className="rightPane" style={{ flex: `1 1 ${100 - leftPaneWidth}%` }}>
+        <button
+          className="paneEdgeToggle iconButton right"
+          onClick={() => setRightPaneHidden(true)}
+          title="Masquer l'aperçu PDF"
+        >
+          {">>"}
+        </button>
         <header className="pdfToolbar">
-          <h2>PDF Preview</h2>
-          <button onClick={() => template && void renderPdfAndPreview(template)} disabled={rendering || !template}>
-            {rendering ? "Rendering..." : "Refresh PDF"}
+          <h2>Aperçu PDF</h2>
+          <button
+            className="iconButton"
+            onClick={() => template && void renderPdfAndPreview(template)}
+            disabled={rendering || !template}
+            title="Actualiser le PDF"
+            aria-label="Actualiser le PDF"
+          >
+            ↻
           </button>
-          <button onClick={downloadPdf} disabled={!pdfBlobRef.current}>
-            Download PDF
+          <button
+            className="iconButton"
+            onClick={downloadPdf}
+            disabled={!pdfBlobRef.current}
+            title="Télécharger le PDF"
+            aria-label="Télécharger le PDF"
+          >
+            ⬇
           </button>
           <small>{autoRenderStatus}</small>
         </header>
-        <div className="previewFrame">
-          {rendering && <div className="previewOverlay">Updating preview...</div>}
-          {renderError && <div className="previewError"><strong>Render error:</strong> {renderError}</div>}
+        <div className="previewFrame" ref={previewFrameRef}>
+          {rendering && <div className="previewOverlay">Mise a jour de l'aperçu...</div>}
+          {renderError && <div className="previewError"><strong>Erreur de rendu :</strong> {renderError}</div>}
           <canvas ref={canvasRef} className="pdfCanvas" />
         </div>
       </section>
+      )}
+
+      {rightPaneHidden && (
+        <button
+          className="paneEdgeToggle iconButton right hidden"
+          onClick={() => setRightPaneHidden(false)}
+          title="Afficher l'aperçu PDF"
+        >
+          {"<<"}
+        </button>
+      )}
     </main>
   );
 }

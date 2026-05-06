@@ -5,16 +5,18 @@
 }
 
 .layout {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr;
+  display: flex;
   min-height: 100vh;
+  height: 100vh;
   color: #12243a;
+  position: relative;
 }
 
 .leftPane {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid #d9e2ec;
+  min-width: 340px;
+  overflow: hidden;
 }
 
 .toolbar {
@@ -45,6 +47,11 @@
   grid-template-columns: 260px 1fr;
   min-height: 0;
   height: calc(100vh - 58px);
+  position: relative;
+}
+
+.editorBody.inspectorHidden {
+  grid-template-columns: 1fr;
 }
 
 .inspector {
@@ -64,9 +71,29 @@
   gap: 10px;
 }
 
+.sessionActionRow {
+  display: flex;
+  gap: 8px;
+}
+
 .blockEditor label {
   display: grid;
   gap: 6px;
+}
+
+.hourRangeRow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.hourRangeRow span {
+  font-size: 0.9rem;
+}
+
+.hourRangeRow select {
+  min-width: 72px;
 }
 
 .profileEditor {
@@ -111,6 +138,9 @@
 }
 
 .grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   overflow: auto;
   padding: 8px;
   background: #f8fbff;
@@ -119,6 +149,7 @@
 .dayHeader {
   display: grid;
   grid-template-columns: 80px repeat(5, 130px);
+  width: 730px;
   position: sticky;
   top: 0;
   z-index: 2;
@@ -190,6 +221,28 @@
   font-size: 0.78rem;
 }
 
+.trashSessionBtn {
+  position: absolute;
+  right: 8px;
+  bottom: 12px;
+  border: none;
+  background: rgba(18, 36, 58, 0.35);
+  color: #fff;
+  border-radius: 999px;
+  width: 32px;
+  height: 32px;
+  font-size: 1.4rem;
+  line-height: 1;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  z-index: 2;
+}
+
+.trashSessionBtn:hover {
+  background: rgba(18, 36, 58, 0.55);
+}
+
 .resizeHandle {
   position: absolute;
   left: 0;
@@ -206,7 +259,73 @@
   display: grid;
   grid-template-rows: auto 1fr;
   min-height: 0;
+  min-width: 320px;
   padding: 12px;
+  overflow: visible;
+  position: relative;
+}
+
+.paneDivider {
+  width: 8px;
+  cursor: col-resize;
+  background: #eef3f9;
+  border-left: 1px solid #d9e2ec;
+  border-right: 1px solid #d9e2ec;
+  z-index: 5;
+}
+
+.paneDivider:hover {
+  background: #dfe8f4;
+}
+
+.paneRestore {
+  display: none;
+}
+
+.paneEdgeToggle {
+  position: absolute;
+  z-index: 20;
+  width: 28px;
+  height: 30px;
+  border: 1px solid #c9d5e0;
+  border-radius: 10px;
+  background: #fdfefe;
+  color: #24384f;
+  display: grid;
+  place-items: center;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 2px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.14);
+}
+
+.iconButton {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.paneEdgeToggle.left {
+  top: 8px;
+  left: 252px;
+}
+
+.paneEdgeToggle.left.hidden {
+  left: -4px;
+}
+
+.paneEdgeToggle.right {
+  top: 42px;
+  left: 0;
+  transform: translateX(-50%);
+  z-index: 30;
+}
+
+.paneEdgeToggle.right.hidden {
+  top: 72px;
+  right: 12px;
+  left: auto;
 }
 
 .pdfToolbar {

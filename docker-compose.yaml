@@ -1,0 +1,9 @@
+services:
+  horaires-prof:
+    image: horaires-prof:latest
+    container_name: horaires-prof
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./teachers:/app/teachers
+    restart: unless-stopped

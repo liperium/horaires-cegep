@@ -11,35 +11,63 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
         npm = "${pkgs.nodejs_22}/bin/npm";
+        workspacePath =
+          let pwd = builtins.getEnv "PWD";
+          in if pwd != "" then pwd else toString ./.;
+        runtimeSource = builtins.path {
+          path = workspacePath;
+          name = "horaires-prof-runtime-source";
+          filter = path: type:
+            let
+              root = toString workspacePath;
+              full = toString path;
+              rel = pkgs.lib.removePrefix "${root}/" full;
+            in
+              rel == ""
+              || rel == "backend"
+              || rel == "backend/dist"
+              || rel == "backend/node_modules"
+              || rel == "frontend"
+              || rel == "frontend/dist"
+              || rel == "teachers"
+              || rel == "backend/package.json"
+              || rel == "backend/package-lock.json"
+              || rel == "frontend/package.json"
+              || rel == "frontend/package-lock.json"
+              || rel == "template.typ"
+              || rel == "base_horaire.typ"
+              || rel == "DICJ_LOGO.png"
+              || rel == "CEGEP_LOGO.png"
+              || pkgs.lib.hasPrefix "backend/dist/" rel
+              || pkgs.lib.hasPrefix "backend/node_modules/" rel
+              || pkgs.lib.hasPrefix "frontend/dist/" rel
+              || pkgs.lib.hasPrefix "teachers/" rel;
+        };
         appBundle = pkgs.runCommand "horaires-prof-app" {
-          nativeBuildInputs = [ pkgs.nodejs_22 pkgs.typst ];
+          nativeBuildInputs = [ pkgs.findutils ];
         } ''
           set -euxo pipefail
-          export HOME="$TMPDIR"
-          echo "== Copy source into build sandbox =="
-          cp -r ${self} src
+          echo "== Copy prebuilt runtime artifacts =="
+          cp -r ${runtimeSource} src
           chmod -R u+w src
           cd src
 
-          echo "== Backend npm ci =="
-          ${npm} --prefix backend ci --prefer-offline --no-audit --progress=false --loglevel verbose
-          echo "== Frontend npm ci =="
-          ${npm} --prefix frontend ci --prefer-offline --no-audit --progress=false --loglevel verbose
-          echo "== Backend build =="
-          ${npm} --prefix backend run build
-          echo "== Frontend build =="
-          ${npm} --prefix frontend run build
-          echo "== Prune backend dev dependencies =="
-          ${npm} --prefix backend prune --omit=dev --no-audit --progress=false --loglevel verbose
+          if [ ! -d backend/dist ]; then
+            echo "Missing backend/dist. Run: nix develop -c npm --prefix backend run build"
+            exit 1
+          fi
+          if [ ! -d frontend/dist ]; then
+            echo "Missing frontend/dist. Run: nix develop -c npm --prefix frontend run build"
+            exit 1
+          fi
+          if [ ! -d backend/node_modules ]; then
+            echo "Missing backend/node_modules. Run: nix develop -c npm --prefix backend ci"
+            exit 1
+          fi
 
-          echo "== Assemble runtime bundle =="
           mkdir -p "$out/app"
-          mkdir -p "$out/app/backend" "$out/app/frontend"
-          cp -r backend/dist "$out/app/backend/dist"
-          cp -r backend/node_modules "$out/app/backend/node_modules"
-          cp backend/package.json "$out/app/backend/package.json"
-          cp backend/package-lock.json "$out/app/backend/package-lock.json"
-          cp -r frontend/dist "$out/app/frontend/dist"
+          cp -r backend "$out/app/backend"
+          cp -r frontend "$out/app/frontend"
           cp -r teachers "$out/app/teachers"
           cp template.typ base_horaire.typ DICJ_LOGO.png CEGEP_LOGO.png "$out/app/"
 
@@ -58,6 +86,19 @@
           ${npm} --prefix backend run dev &
           wait
         '';
+        dockerBuildScript = pkgs.writeShellScriptBin "docker-build" ''
+          set -euo pipefail
+          export PATH="${pkgs.nodejs_22}/bin:${pkgs.nix}/bin:$PATH"
+          echo "== Backend deps/build =="
+          ${npm} --prefix backend ci
+          ${npm} --prefix backend run build
+          echo "== Frontend deps/build =="
+          ${npm} --prefix frontend ci
+          ${npm} --prefix frontend run build
+          echo "== Docker image build =="
+          nix build --impure .#dockerImage --option eval-cache false -L
+          echo "Done. Load with: docker load < result"
+        '';
       in {
         devShells.default = pkgs.mkShell {
           buildInputs = [ pkgs.nodejs_22 devScript ];
@@ -67,11 +108,15 @@
           type = "app";
           program = "${devScript}/bin/dev";
         };
+        apps.docker-build = {
+          type = "app";
+          program = "${dockerBuildScript}/bin/docker-build";
+        };
 
         packages.dockerImage = pkgs.dockerTools.buildLayeredImage {
           name = "horaires-prof";
           tag = "latest";
-          contents = [ appBundle pkgs.nodejs_22 pkgs.typst pkgs.bash ];
+          contents = [ appBundle pkgs.nodejs_22 pkgs.typst ];
           config = {
             WorkingDir = "/app";
             Env = [

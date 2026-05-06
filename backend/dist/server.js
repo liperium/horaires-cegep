@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -91,16 +92,12 @@ app.post("/api/bootstrap/migrate", async (_req, res) => {
     res.status(501).json({ error: "Run `npm run migrate` in backend to import TOML data." });
 });
 const frontendDist = path.join(ROOT, "frontend", "dist");
-void access(path.join(frontendDist, "index.html"))
-    .then(() => {
+if (existsSync(path.join(frontendDist, "index.html"))) {
     app.use(express.static(frontendDist));
     app.get(/^(?!\/api\/).*/, (_req, res) => {
         res.sendFile(path.join(frontendDist, "index.html"));
     });
-})
-    .catch(() => {
-    // Frontend build missing (dev mode); API-only server behavior.
-});
+}
 app.use((_req, res) => {
     res.status(404).json({ error: "Not found" });
 });

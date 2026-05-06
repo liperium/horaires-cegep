@@ -36,13 +36,11 @@ export function useTemplateEditor(): TemplateEditor {
   }, []);
 
   const updateTemplate = useCallback((mutator: (draft: TeacherTemplate) => TeacherTemplate): void => {
-    setTemplate((current) => {
-      if (!current) return current;
-      setHistory((entries) => [...entries, current]);
-      setFuture([]);
-      return mutator(structuredClone(current));
-    });
-  }, []);
+    if (!template) return;
+    setHistory((entries) => [...entries, template]);
+    setFuture([]);
+    setTemplate(mutator(structuredClone(template)));
+  }, [template]);
 
   const updateSession = useCallback((sessionId: string, updater: (session: Session) => Session): void => {
     updateTemplate((draft) => {
@@ -58,32 +56,20 @@ export function useTemplateEditor(): TemplateEditor {
   }, [updateTemplate]);
 
   const undo = useCallback((): void => {
-    setTemplate((current) => {
-      if (!current) return current;
-      let previous: TeacherTemplate | undefined;
-      setHistory((entries) => {
-        previous = entries[entries.length - 1];
-        return entries.slice(0, -1);
-      });
-      if (!previous) return current;
-      setFuture((entries) => [current, ...entries]);
-      return previous;
-    });
-  }, []);
+    if (!template || history.length === 0) return;
+    const previous = history[history.length - 1];
+    setHistory((entries) => entries.slice(0, -1));
+    setFuture((entries) => [template, ...entries]);
+    setTemplate(previous);
+  }, [history, template]);
 
   const redo = useCallback((): void => {
-    setTemplate((current) => {
-      if (!current) return current;
-      let next: TeacherTemplate | undefined;
-      setFuture((entries) => {
-        next = entries[0];
-        return entries.slice(1);
-      });
-      if (!next) return current;
-      setHistory((entries) => [...entries, current]);
-      return next;
-    });
-  }, []);
+    if (!template || future.length === 0) return;
+    const [next, ...rest] = future;
+    setFuture(rest);
+    setHistory((entries) => [...entries, template]);
+    setTemplate(next);
+  }, [future, template]);
 
   return {
     template,
