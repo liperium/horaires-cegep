@@ -15,15 +15,22 @@ const port = Number(process.env.PORT ?? "4000");
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 
+async function getExpectedAccessToken(): Promise<string> {
+  const envToken = process.env.ACCESS_TOKEN?.trim();
+  if (envToken) return envToken;
+  const fileToken = (await readFile(path.join(TEACHERS_DIR, "token.txt"), "utf8")).trim();
+  return fileToken;
+}
+
 app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
 app.use("/api", async (req, res, next) => {
   try {
-    const expectedToken = (await readFile(path.join(TEACHERS_DIR, "token.txt"), "utf8")).trim();
+    const expectedToken = await getExpectedAccessToken();
     if (!expectedToken) {
-      res.status(500).json({ error: "teachers/token.txt is empty" });
+      res.status(500).json({ error: "ACCESS_TOKEN and teachers/token.txt are both empty" });
       return;
     }
     const providedToken = req.header("x-access-token")?.trim();
@@ -33,7 +40,7 @@ app.use("/api", async (req, res, next) => {
     }
     next();
   } catch {
-    res.status(500).json({ error: "teachers/token.txt is missing" });
+    res.status(500).json({ error: "ACCESS_TOKEN is unset and teachers/token.txt is missing" });
   }
 });
 
