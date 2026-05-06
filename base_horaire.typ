@@ -54,7 +54,7 @@
   ),
 )
 
-// ----- Availability ("Dispo") blocks -----------------------------------------
+// ----- Availability ("Disponible") blocks -----------------------------------------
 // Format: (day, start, end)
 #let disponibilites = (
   ("Mardi",  8, 12),
@@ -131,7 +131,7 @@
   }
   for dispo in disponibilites {
     let (day, start, end) = dispo
-    g = place-block(g, day, start, end, dispoBlue, [Dispo])
+    g = place-block(g, day, start, end, dispoBlue, [Disponible])
   }
   g
 }

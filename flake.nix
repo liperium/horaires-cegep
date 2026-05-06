@@ -16,7 +16,7 @@
           in if pwd != "" then pwd else toString ./.;
         runtimeSource = builtins.path {
           path = workspacePath;
-          name = "horaires-prof-runtime-source";
+          name = "dicj-horaires-runtime-source";
           filter = path: type:
             let
               root = toString workspacePath;
@@ -43,7 +43,7 @@
               || pkgs.lib.hasPrefix "frontend/dist/" rel
               || pkgs.lib.hasPrefix "teachers/" rel;
         };
-        appBundle = pkgs.runCommand "horaires-prof-app" {
+        appBundle = pkgs.runCommand "dicj-horaires-prof" {
           nativeBuildInputs = [ pkgs.findutils ];
         } ''
           set -euxo pipefail
@@ -118,13 +118,15 @@
         };
 
         packages.dockerImage = pkgs.dockerTools.buildLayeredImage {
-          name = "horaires-prof";
+          name = "dicj-horaires";
           tag = "latest";
-          contents = [ appBundle pkgs.nodejs_22 pkgs.typst ];
+          contents = [ appBundle pkgs.nodejs_22 pkgs.typst pkgs.noto-fonts pkgs.fontconfig ];
           config = {
             WorkingDir = "/app";
             Env = [
               "PORT=4000"
+              "TEACHERS_DIR=/app/teachers"
+              "FONTCONFIG_FILE=${pkgs.makeFontsConf { fontDirectories = [ pkgs.noto-fonts ]; }}"
               "PATH=/bin"
             ];
             ExposedPorts = {

@@ -1,7 +1,7 @@
 services:
-  horaires-prof:
-    image: horaires-prof:latest
-    container_name: horaires-prof
+  dicj-horaires:
+    image: dicj-horaires:latest
+    container_name: dicj-horaires
     ports:
       - "4000:4000"
     volumes:

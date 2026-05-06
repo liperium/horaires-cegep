@@ -19,14 +19,19 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.get("/api/access-token", async (_req, res) => {
+app.use("/api", async (req, res, next) => {
   try {
-    const token = (await readFile(path.join(TEACHERS_DIR, "token.txt"), "utf8")).trim();
-    if (!token) {
+    const expectedToken = (await readFile(path.join(TEACHERS_DIR, "token.txt"), "utf8")).trim();
+    if (!expectedToken) {
       res.status(500).json({ error: "teachers/token.txt is empty" });
       return;
     }
-    res.json({ token });
+    const providedToken = req.header("x-access-token")?.trim();
+    if (!providedToken || providedToken !== expectedToken) {
+      res.status(401).json({ error: "Invalid or missing access token" });
+      return;
+    }
+    next();
   } catch {
     res.status(500).json({ error: "teachers/token.txt is missing" });
   }

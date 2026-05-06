@@ -3,21 +3,6 @@ import type { TeacherTemplate } from "../../../backend/src/template-contract.ts"
 
 export type TemplateListItem = { teacherKey: string; nom: string };
 
-export async function getAccessToken(signal?: AbortSignal): Promise<string> {
-  const response = await fetch("/api/access-token", { signal });
-  const payload = await parseJson(response);
-  if (!response.ok) {
-    throw new Error(parseApiError(payload));
-  }
-  const token = typeof payload === "object" && payload !== null && "token" in payload
-    ? (payload as { token: unknown }).token
-    : undefined;
-  if (typeof token !== "string" || !token.trim()) {
-    throw new Error("Invalid token payload");
-  }
-  return token.trim();
-}
-
 function parseApiError(payload: unknown): string {
   if (typeof payload === "object" && payload !== null && "error" in payload) {
     const error = (payload as { error: unknown }).error;
@@ -30,20 +15,32 @@ async function parseJson(response: Response): Promise<unknown> {
   return response.json() as Promise<unknown>;
 }
 
-export async function listTemplates(signal?: AbortSignal): Promise<TemplateListItem[]> {
-  const response = await fetch("/api/templates", { signal });
-  return zTemplateListResponse.parse(await parseJson(response));
+function authHeaders(accessToken: string): HeadersInit {
+  return { "x-access-token": accessToken };
 }
 
-export async function getTemplate(teacherKey: string, signal?: AbortSignal): Promise<TeacherTemplate> {
-  const response = await fetch(`/api/templates/${teacherKey}`, { signal });
-  return zTeacherTemplate.parse(await parseJson(response));
+export async function listTemplates(accessToken: string, signal?: AbortSignal): Promise<TemplateListItem[]> {
+  const response = await fetch("/api/templates", { signal, headers: authHeaders(accessToken) });
+  const payload = await parseJson(response);
+  if (!response.ok) {
+    throw new Error(parseApiError(payload));
+  }
+  return zTemplateListResponse.parse(payload);
 }
 
-export async function saveTemplate(template: TeacherTemplate, signal?: AbortSignal): Promise<void> {
+export async function getTemplate(teacherKey: string, accessToken: string, signal?: AbortSignal): Promise<TeacherTemplate> {
+  const response = await fetch(`/api/templates/${teacherKey}`, { signal, headers: authHeaders(accessToken) });
+  const payload = await parseJson(response);
+  if (!response.ok) {
+    throw new Error(parseApiError(payload));
+  }
+  return zTeacherTemplate.parse(payload);
+}
+
+export async function saveTemplate(template: TeacherTemplate, accessToken: string, signal?: AbortSignal): Promise<void> {
   const response = await fetch("/api/templates", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(accessToken) },
     body: JSON.stringify(template),
     signal,
   });
@@ -55,11 +52,12 @@ export async function saveTemplate(template: TeacherTemplate, signal?: AbortSign
 export async function renderTemplatePdf(
   teacherKey: string,
   template: TeacherTemplate,
+  accessToken: string,
   signal?: AbortSignal,
 ): Promise<Blob> {
   const response = await fetch(`/api/templates/${teacherKey}/render`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders(accessToken) },
     body: JSON.stringify(template),
     signal,
   });

@@ -69,7 +69,7 @@
       let day   = dispo.jour
       let start = dispo.debut
       let end   = dispo.fin
-      g = place-block(g, day, start, end, dispoBlue, [Dispo], text-col: black)
+      g = place-block(g, day, start, end, dispoBlue, [Disponible], text-col: black)
     }
     for extra in extras {
       let color    = resolve-color(extra.couleur)

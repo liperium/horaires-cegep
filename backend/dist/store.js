@@ -5,7 +5,9 @@ import { nanoid } from "nanoid";
 import { zTeacherTemplate } from "./template-contract.js";
 const moduleDir = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(moduleDir, "..", "..");
-export const TEACHERS_DIR = path.join(ROOT, "teachers");
+export const TEACHERS_DIR = process.env.TEACHERS_DIR
+    ? path.resolve(process.env.TEACHERS_DIR)
+    : path.join(ROOT, "teachers");
 function templatePath(teacherKey) {
     return path.join(TEACHERS_DIR, teacherKey, "template.json");
 }

@@ -16,7 +16,7 @@ import type {
   Session,
   TeacherTemplate,
 } from "../../backend/src/template-contract.ts";
-import { getAccessToken, getTemplate, listTemplates, renderTemplatePdf, saveTemplate } from "./api/templates.ts";
+import { getTemplate, listTemplates, renderTemplatePdf, saveTemplate } from "./api/templates.ts";
 import type { TemplateListItem } from "./api/templates.ts";
 import { useTemplateEditor } from "./hooks/useTemplateEditor.ts";
 import { allGroups, removeSessionEverywhere } from "./template-groups.ts";
@@ -93,11 +93,11 @@ function newCourse(): Course {
 }
 
 function newAvailability(): Availability {
-  return { id: crypto.randomUUID(), label: "Dispo", couleur: "light_blue", seances: [newSession()] };
+  return { id: crypto.randomUUID(), label: "Disponible", couleur: "light_blue", seances: [newSession()] };
 }
 
 function newExtra(): Extra {
-  return { id: crypto.randomUUID(), label: "Activite", couleur: "grey", seances: [newSession()] };
+  return { id: crypto.randomUUID(), label: "Activité", couleur: "grey", seances: [newSession()] };
 }
 
 function App() {
@@ -122,6 +122,8 @@ function App() {
   const [newTeacherName, setNewTeacherName] = useState("");
   const [profilOpen, setProfilOpen] = useState(true);
   const [coursOpen, setCoursOpen] = useState(true);
+  const [coursDetailsOpen, setCoursDetailsOpen] = useState(true);
+  const [seanceDetailsOpen, setSeanceDetailsOpen] = useState(true);
   const [leftPaneWidth, setLeftPaneWidth] = useState(62);
   const [inspectorHidden, setInspectorHidden] = useState(false);
   const [rightPaneHidden, setRightPaneHidden] = useState(false);
@@ -134,7 +136,8 @@ function App() {
   const gridRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (!accessToken) {
+    const token = accessToken;
+    if (!token) {
       setTokenError("Acces refuse : le jeton est absent de l'URL.");
       setIsTokenValidated(false);
       return;
@@ -142,17 +145,12 @@ function App() {
     const controller = new AbortController();
     async function validateToken(): Promise<void> {
       try {
-        const expectedToken = await getAccessToken(controller.signal);
-        if (expectedToken !== accessToken) {
-          setTokenError("Acces refuse : jeton invalide.");
-          setIsTokenValidated(false);
-          return;
-        }
+        await listTemplates(token!, controller.signal);
         setTokenError(null);
         setIsTokenValidated(true);
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          setTokenError(error instanceof Error ? error.message : "Impossible de valider le jeton");
+          setTokenError(error instanceof Error ? error.message : "Acces refuse : jeton invalide.");
           setIsTokenValidated(false);
         }
       }
@@ -162,11 +160,12 @@ function App() {
   }, [accessToken]);
 
   useEffect(() => {
-    if (!isTokenValidated) return;
+    const token = accessToken;
+    if (!isTokenValidated || !token) return;
     const controller = new AbortController();
     async function loadList(): Promise<void> {
       try {
-        const data = await listTemplates(controller.signal);
+        const data = await listTemplates(token!, controller.signal);
         setTemplates(data);
         const savedTeacher = window.sessionStorage.getItem(LAST_TEACHER_KEY);
         const preferredTeacher = savedTeacher && data.some((entry) => entry.teacherKey === savedTeacher)
@@ -183,7 +182,7 @@ function App() {
     }
     void loadList();
     return () => controller.abort();
-  }, [isTokenValidated]);
+  }, [accessToken, isTokenValidated]);
 
   useEffect(() => {
     if (!selectedTeacher) return;
@@ -191,14 +190,15 @@ function App() {
   }, [selectedTeacher]);
 
   useEffect(() => {
-    if (!isTokenValidated || !selectedTeacher) {
+    const token = accessToken;
+    if (!isTokenValidated || !selectedTeacher || !token) {
       return;
     }
     const controller = new AbortController();
     async function loadTemplate(): Promise<void> {
       setLoading(true);
       try {
-        const data = await getTemplate(selectedTeacher, controller.signal);
+        const data = await getTemplate(selectedTeacher, token!, controller.signal);
         setLoadedTemplate(data);
         setActiveBlockId(null);
         firstLoadDoneRef.current = false;
@@ -212,7 +212,7 @@ function App() {
     }
     void loadTemplate();
     return () => controller.abort();
-  }, [isTokenValidated, selectedTeacher, setLoadedTemplate]);
+  }, [accessToken, isTokenValidated, selectedTeacher, setLoadedTemplate]);
 
   const flatSessions = useMemo(() => {
     if (!template) return [] as SessionRef[];
@@ -227,7 +227,7 @@ function App() {
           sessionId: session.id,
           groupId: group.id,
           groupType,
-          label: group[labelKey] ?? "",
+          label: groupType === "availability" ? "Disponible" : (group[labelKey] ?? ""),
           color: group.couleur,
           day: preview?.day ?? session.day,
           startHour: preview?.startHour ?? session.startHour,
@@ -358,23 +358,34 @@ function App() {
     const unscaled = page.getViewport({ scale: 1 });
     const scale = containerWidth / unscaled.width;
     const viewport = page.getViewport({ scale });
+    // Render offscreen first so the previous preview stays visible until ready.
+    const offscreen = document.createElement("canvas");
+    offscreen.width = viewport.width;
+    offscreen.height = viewport.height;
+    const offscreenCtx = offscreen.getContext("2d");
+    if (!offscreenCtx) return;
+    await page.render({ canvasContext: offscreenCtx, canvas: offscreen, viewport }).promise;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     canvas.width = viewport.width;
     canvas.height = viewport.height;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      await page.render({ canvasContext: ctx, canvas, viewport }).promise;
-    }
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(offscreen, 0, 0);
   }
 
   async function renderPdfAndPreview(templateToRender: TeacherTemplate): Promise<void> {
     if (!canvasRef.current) return;
+    const token = accessToken;
+    if (!token) {
+      throw new Error("Acces refuse : jeton invalide.");
+    }
     renderAbortRef.current?.abort();
     const controller = new AbortController();
     renderAbortRef.current = controller;
     setRendering(true);
     setRenderError(null);
     try {
-      const blob = await renderTemplatePdf(templateToRender.teacherKey, templateToRender, controller.signal);
+      const blob = await renderTemplatePdf(templateToRender.teacherKey, templateToRender, token, controller.signal);
       pdfBlobRef.current = blob;
       await drawPdfBlobToCanvas(blob);
       setAutoRenderStatus(`Rendu a ${new Date().toLocaleTimeString()}`);
@@ -427,6 +438,8 @@ function App() {
 
   useEffect(() => {
     if (!template) return;
+    const token = accessToken;
+    if (!token) return;
     if (!firstLoadDoneRef.current) {
       firstLoadDoneRef.current = true;
       void renderPdfAndPreview(template);
@@ -440,7 +453,7 @@ function App() {
       setAutoRenderStatus("Rendu automatique...");
       void renderPdfAndPreview(template);
     }, 600);
-    void saveTemplate(template, saveController.signal).catch((error: unknown) => {
+    void saveTemplate(template, token, saveController.signal).catch((error: unknown) => {
       if (!(error instanceof DOMException && error.name === "AbortError")) {
         setRenderError(error instanceof Error ? error.message : "Echec de sauvegarde");
         setAutoRenderStatus("Echec de sauvegarde");
@@ -450,7 +463,7 @@ function App() {
       clearTimeout(handle);
       saveController.abort();
     };
-  }, [template]);
+  }, [accessToken, template]);
 
   function downloadPdf(): void {
     if (!pdfBlobRef.current || !template) return;
@@ -465,6 +478,8 @@ function App() {
   }
 
   async function createTeacher(): Promise<void> {
+    const token = accessToken;
+    if (!token) return;
     const name = newTeacherName.trim();
     if (!name) return;
     const teacherKey = toTeacherKey(name);
@@ -481,8 +496,8 @@ function App() {
       extras: [{ ...newExtra(), seances: [{ id: crypto.randomUUID(), day: "Vendredi", startHour: 8, endHour: 10, lane: 0 }] }],
       version: { timestamp: new Date().toISOString(), note: "Cree dans l'application web" },
     };
-    await saveTemplate(newTemplate);
-    const data = await listTemplates();
+    await saveTemplate(newTemplate, token);
+    const data = await listTemplates(token);
     setTemplates(data);
     setSelectedTeacher(teacherKey);
     setNewTeacherName("");
@@ -705,7 +720,7 @@ function App() {
                   }))
                 }
               >
-                + Activite
+                + Activité
               </button>
             </div>
             {selectedSession && selectedSessionObj ? (
@@ -727,65 +742,143 @@ function App() {
                 </div>
                 {selectedCourse ? (
                   <>
-                    <div className="sectionLabel">Cours</div>
-                    <label>
-                      Nom
-                      <input
-                        value={selectedCourse.nom}
-                        onChange={(event) =>
-                          updateGroup("course", selectedCourse.id, (group) => ({ ...group, nom: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Code
-                      <input
-                        value={selectedCourse.code}
-                        onChange={(event) =>
-                          updateGroup("course", selectedCourse.id, (group) => ({ ...group, code: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Local
-                      <input
-                        value={selectedCourse.local}
-                        onChange={(event) =>
-                          updateGroup("course", selectedCourse.id, (group) => ({ ...group, local: event.target.value }))
-                        }
-                      />
-                    </label>
-                    <label>
-                      Couleur
-                      <select
-                        value={selectedSession.color}
-                        onChange={(event) =>
-                          updateGroup("course", selectedCourse.id, (group) => ({ ...group, couleur: event.target.value as Palette }))
-                        }
-                      >
-                        {coursePalette.map((entry) => (
-                          <option key={entry} value={entry}>{entry}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="sectionLabel">Séance</div>
-                    <label>
-                      Groupe
-                      <input
-                        value={selectedSessionObj.groupe ?? ""}
-                        onChange={(event) =>
-                          updateSession(selectedSession.sessionId, (s) => ({ ...s, groupe: event.target.value || undefined }))
-                        }
-                      />
-                    </label>
+                    <div className="sectionToggle" onClick={() => setCoursDetailsOpen((open) => !open)}>
+                      Cours <span className="chevron">{coursDetailsOpen ? "▾" : "▸"}</span>
+                    </div>
+                    {coursDetailsOpen && (
+                      <>
+                        <label>
+                          Nom
+                          <input
+                            value={selectedCourse.nom}
+                            onChange={(event) =>
+                              updateGroup("course", selectedCourse.id, (group) => ({ ...group, nom: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Code
+                          <input
+                            value={selectedCourse.code}
+                            onChange={(event) =>
+                              updateGroup("course", selectedCourse.id, (group) => ({ ...group, code: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Local
+                          <input
+                            value={selectedCourse.local}
+                            onChange={(event) =>
+                              updateGroup("course", selectedCourse.id, (group) => ({ ...group, local: event.target.value }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Couleur
+                          <select
+                            value={selectedSession.color}
+                            onChange={(event) => {
+                              const nextColor = event.target.value as Palette;
+                              updateTemplate((draft) => {
+                                const selected = draft.courses.find((course) => course.id === selectedCourse.id);
+                                if (!selected) return draft;
+                                if (selected.couleur === nextColor) return draft;
+                                const conflicting = draft.courses.find(
+                                  (course) => course.id !== selected.id && course.couleur === nextColor,
+                                );
+                                return {
+                                  ...draft,
+                                  courses: draft.courses.map((course) => {
+                                    if (course.id === selected.id) {
+                                      return { ...course, couleur: nextColor };
+                                    }
+                                    if (conflicting && course.id === conflicting.id) {
+                                      return { ...course, couleur: selected.couleur };
+                                    }
+                                    return course;
+                                  }),
+                                };
+                              });
+                            }}
+                          >
+                            {coursePalette.map((entry) => (
+                              <option key={entry} value={entry}>{entry}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </>
+                    )}
+                    <div className="sectionToggle" onClick={() => setSeanceDetailsOpen((open) => !open)}>
+                      Séance <span className="chevron">{seanceDetailsOpen ? "▾" : "▸"}</span>
+                    </div>
+                    {seanceDetailsOpen && (
+                      <>
+                        <label>
+                          Groupe
+                          <input
+                            value={selectedSessionObj.groupe ?? ""}
+                            onChange={(event) =>
+                              updateSession(selectedSession.sessionId, (s) => ({ ...s, groupe: event.target.value || undefined }))
+                            }
+                          />
+                        </label>
+                        <label>
+                          Jour
+                          <select
+                            value={selectedSessionObj.day}
+                            onChange={(event) =>
+                              updateSession(selectedSession.sessionId, (s) => ({ ...s, day: event.target.value as Day }))
+                            }
+                          >
+                            {days.map((d) => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                        </label>
+                        <div className="hourRangeRow">
+                          <span>Début - Fin</span>
+                          <select
+                            value={selectedSessionObj.startHour}
+                            onChange={(event) => {
+                              const v = parseInt(event.target.value);
+                              updateSession(selectedSession.sessionId, (s) => ({
+                                ...s,
+                                startHour: v,
+                                endHour: Math.max(s.endHour, v + 1),
+                              }));
+                            }}
+                          >
+                            {startHourOptions.map((h) => (
+                              <option key={h} value={h}>{h}h</option>
+                            ))}
+                          </select>
+                          <select
+                            value={selectedSessionObj.endHour}
+                            onChange={(event) => {
+                              const v = parseInt(event.target.value);
+                              updateSession(selectedSession.sessionId, (s) => ({
+                                ...s,
+                                endHour: v,
+                                startHour: Math.min(s.startHour, v - 1),
+                              }));
+                            }}
+                          >
+                            {endHourOptions.map((h) => (
+                              <option key={h} value={h}>{h}h</option>
+                            ))}
+                          </select>
+                        </div>
+                      </>
+                    )}
                   </>
                 ) : (
                   <>
                     <label>
-                      Libelle
+                      Titre
                       <input
-                        value={selectedSession.label}
+                        value={selectedSession.groupType === "availability" ? "Disponible" : selectedSession.label}
+                        disabled={selectedSession.groupType === "availability"}
                         onChange={(event) =>
+                          selectedSession.groupType === "availability" ? undefined :
                           updateGroup(selectedSession.groupType, selectedSession.groupId, (group) => ({
                             ...group,
                             label: event.target.value,
@@ -813,53 +906,54 @@ function App() {
                     )}
                   </>
                 )}
-                <label>
-                  Jour
-                  <select
-                    value={selectedSessionObj.day}
-                    onChange={(event) =>
-                      updateSession(selectedSession.sessionId, (s) => ({ ...s, day: event.target.value as Day }))
-                    }
-                  >
-                    {days.map((d) => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </label>
-                <label>
-                  Début
-                  <select
-                    value={selectedSessionObj.startHour}
-                    onChange={(event) => {
-                      const v = parseInt(event.target.value);
-                      updateSession(selectedSession.sessionId, (s) => ({
-                        ...s,
-                        startHour: v,
-                        endHour: Math.max(s.endHour, v + 1),
-                      }));
-                    }}
-                  >
-                    {startHourOptions.map((h) => (
-                      <option key={h} value={h}>{h}h</option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  Fin
-                  <select
-                    value={selectedSessionObj.endHour}
-                    onChange={(event) => {
-                      const v = parseInt(event.target.value);
-                      updateSession(selectedSession.sessionId, (s) => ({
-                        ...s,
-                        endHour: v,
-                        startHour: Math.min(s.startHour, v - 1),
-                      }));
-                    }}
-                  >
-                    {endHourOptions.map((h) => (
-                      <option key={h} value={h}>{h}h</option>
-                    ))}
-                  </select>
-                </label>
+                {selectedSession.groupType !== "course" && (
+                  <>
+                    <label>
+                      Jour
+                      <select
+                        value={selectedSessionObj.day}
+                        onChange={(event) =>
+                          updateSession(selectedSession.sessionId, (s) => ({ ...s, day: event.target.value as Day }))
+                        }
+                      >
+                        {days.map((d) => <option key={d} value={d}>{d}</option>)}
+                      </select>
+                    </label>
+                    <div className="hourRangeRow">
+                      <span>Début - Fin</span>
+                      <select
+                        value={selectedSessionObj.startHour}
+                        onChange={(event) => {
+                          const v = parseInt(event.target.value);
+                          updateSession(selectedSession.sessionId, (s) => ({
+                            ...s,
+                            startHour: v,
+                            endHour: Math.max(s.endHour, v + 1),
+                          }));
+                        }}
+                      >
+                        {startHourOptions.map((h) => (
+                          <option key={h} value={h}>{h}h</option>
+                        ))}
+                      </select>
+                      <select
+                        value={selectedSessionObj.endHour}
+                        onChange={(event) => {
+                          const v = parseInt(event.target.value);
+                          updateSession(selectedSession.sessionId, (s) => ({
+                            ...s,
+                            endHour: v,
+                            startHour: Math.min(s.startHour, v - 1),
+                          }));
+                        }}
+                      >
+                        {endHourOptions.map((h) => (
+                          <option key={h} value={h}>{h}h</option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <p>Sélectionnez une séance a modifier.</p>
@@ -961,7 +1055,6 @@ function App() {
           <small>{autoRenderStatus}</small>
         </header>
         <div className="previewFrame" ref={previewFrameRef}>
-          {rendering && <div className="previewOverlay">Mise a jour de l'aperçu...</div>}
           {renderError && <div className="previewError"><strong>Erreur de rendu :</strong> {renderError}</div>}
           <canvas ref={canvasRef} className="pdfCanvas" />
         </div>
