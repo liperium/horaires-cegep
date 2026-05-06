@@ -108,6 +108,10 @@
           type = "app";
           program = "${devScript}/bin/dev";
         };
+        apps.dev = {
+          type = "app";
+          program = "${devScript}/bin/dev";
+        };
         apps.docker-build = {
           type = "app";
           program = "${dockerBuildScript}/bin/docker-build";

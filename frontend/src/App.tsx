@@ -53,6 +53,16 @@ function toTeacherKey(name: string): string {
   return name.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
 }
 
+function toFilePart(value: string): string {
+  return value
+    .trim()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_");
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
@@ -380,10 +390,11 @@ function App() {
   }
 
   useEffect(() => {
+    if (rightPaneHidden) return;
     const frame = previewFrameRef.current;
     if (!frame) return;
     let timeout: number | undefined;
-    const observer = new ResizeObserver(() => {
+    const scheduleRedraw = (): void => {
       if (!pdfBlobRef.current || rendering) return;
       window.clearTimeout(timeout);
       timeout = window.setTimeout(() => {
@@ -392,13 +403,16 @@ function App() {
           // Keep current preview if a resize-time rerender fails.
         });
       }, 120);
-    });
+    };
+    const observer = new ResizeObserver(scheduleRedraw);
     observer.observe(frame);
+    window.addEventListener("resize", scheduleRedraw);
     return () => {
       if (timeout) window.clearTimeout(timeout);
+      window.removeEventListener("resize", scheduleRedraw);
       observer.disconnect();
     };
-  }, [rendering]);
+  }, [rendering, rightPaneHidden]);
 
   useEffect(() => {
     if (rightPaneHidden || rendering || !pdfBlobRef.current) return;
@@ -443,7 +457,9 @@ function App() {
     const url = URL.createObjectURL(pdfBlobRef.current);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `${template.teacherKey}-horaire.pdf`;
+    const teacherNamePart = toFilePart(template.profile.nom) || toFilePart(template.teacherKey) || "enseignant";
+    const sessionPart = toFilePart(template.session) || "session";
+    anchor.download = `Horaire_${teacherNamePart}_${sessionPart}.pdf`;
     anchor.click();
     URL.revokeObjectURL(url);
   }

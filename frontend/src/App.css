@@ -285,15 +285,15 @@
 .paneEdgeToggle {
   position: absolute;
   z-index: 20;
-  width: 28px;
-  height: 30px;
+  width: 36px;
+  height: 32px;
   border: 1px solid #c9d5e0;
   border-radius: 10px;
   background: #fdfefe;
   color: #24384f;
   display: grid;
   place-items: center;
-  font-size: 1rem;
+  font-size: 0.7rem;
   line-height: 1;
   padding: 0 2px;
   font-weight: 700;
@@ -312,17 +312,20 @@
 }
 
 .paneEdgeToggle.left.hidden {
-  left: -4px;
+  position: fixed;
+  top: 72px;
+  left: 12px;
 }
 
 .paneEdgeToggle.right {
-  top: 42px;
+  top: 72px;
   left: 0;
   transform: translateX(-50%);
   z-index: 30;
 }
 
 .paneEdgeToggle.right.hidden {
+  position: fixed;
   top: 72px;
   right: 12px;
   left: auto;
