@@ -44,8 +44,14 @@ const LAST_TEACHER_KEY = "horaires-prof:last-teacher";
 
 const hourPx = 46;
 
+const BASE_PATH = (() => {
+  const idx = new URL(import.meta.url).pathname.indexOf("/assets/");
+  return idx !== -1 ? new URL(import.meta.url).pathname.slice(0, idx) : "";
+})();
+
 function getTokenFromPathname(pathname: string): string | null {
-  const token = pathname.split("/").filter(Boolean)[0] ?? "";
+  const relative = pathname.startsWith(BASE_PATH) ? pathname.slice(BASE_PATH.length) : pathname;
+  const token = relative.split("/").filter(Boolean)[0] ?? "";
   return token.trim() ? token : null;
 }
 
