@@ -3,7 +3,7 @@ services:
     image: dicj-horaires:latest
     container_name: dicj-horaires
     environment:
-      - ACCESS_TOKEN=${ACCESS_TOKEN}
+      - ACCESS_TOKEN=allo
     # Put a .env file in the root directory with the ACCESS_TOKEN
     ports:
       - "4000:4000"

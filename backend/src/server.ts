@@ -114,7 +114,6 @@ app.post("/api/templates/:teacherKey/render", async (req, res) => {
 });
 
 app.post("/api/bootstrap/migrate", async (_req, res) => {
-  // Avoid importing migrate script side effects; run command from UI setup when needed.
   res.status(501).json({ error: "Run `npm run migrate` in backend to import TOML data." });
 });
 

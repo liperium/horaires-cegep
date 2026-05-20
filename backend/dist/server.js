@@ -10,6 +10,7 @@ import { ROOT, TEACHERS_DIR, getTemplate, listTemplates, savePdf, upsertTemplate
 import { renderPdf } from "./typst.js";
 const app = express();
 const port = Number(process.env.PORT ?? "4000");
+const basePath = (process.env.BASE_PATH ?? "").replace(/\/$/, "");
 app.use(cors());
 app.use(express.json({ limit: "1mb" }));
 async function getExpectedAccessToken() {
@@ -19,10 +20,10 @@ async function getExpectedAccessToken() {
     const fileToken = (await readFile(path.join(TEACHERS_DIR, "token.txt"), "utf8")).trim();
     return fileToken;
 }
-app.get("/health", (_req, res) => {
+app.get(`${basePath}/health`, (_req, res) => {
     res.json({ ok: true });
 });
-app.use("/api", async (req, res, next) => {
+app.use(`${basePath}/api`, async (req, res, next) => {
     try {
         const expectedToken = await getExpectedAccessToken();
         if (!expectedToken) {
@@ -40,7 +41,7 @@ app.use("/api", async (req, res, next) => {
         res.status(500).json({ error: "ACCESS_TOKEN is unset and teachers/token.txt is missing" });
     }
 });
-app.get("/api/templates", async (_req, res) => {
+app.get(`${basePath}/api/templates`, async (_req, res) => {
     const templates = await listTemplates();
     res.json(templates.map((template) => ({
         id: template.id,
@@ -49,7 +50,7 @@ app.get("/api/templates", async (_req, res) => {
         version: template.version,
     })));
 });
-app.get("/api/templates/:teacherKey", async (req, res) => {
+app.get(`${basePath}/api/templates/:teacherKey`, async (req, res) => {
     const template = await getTemplate(req.params.teacherKey);
     if (!template) {
         res.status(404).json({ error: "Template not found" });
@@ -57,7 +58,7 @@ app.get("/api/templates/:teacherKey", async (req, res) => {
     }
     res.json(template);
 });
-app.post("/api/templates", async (req, res) => {
+app.post(`${basePath}/api/templates`, async (req, res) => {
     const parsed = zTeacherTemplate.safeParse(req.body);
     if (!parsed.success) {
         res.status(400).json({ error: parsed.error.flatten() });
@@ -74,7 +75,7 @@ app.post("/api/templates", async (req, res) => {
     const saved = await upsertTemplate(template);
     res.json(saved);
 });
-app.post("/api/templates/:teacherKey/render", async (req, res) => {
+app.post(`${basePath}/api/templates/:teacherKey/render`, async (req, res) => {
     const bodyTemplate = zTeacherTemplate.safeParse(req.body);
     if (!bodyTemplate.success) {
         res.status(400).json({ error: bodyTemplate.error.flatten() });
@@ -99,15 +100,22 @@ app.post("/api/templates/:teacherKey/render", async (req, res) => {
         res.status(500).json({ error: message });
     }
 });
-app.post("/api/bootstrap/migrate", async (_req, res) => {
-    // Avoid importing migrate script side effects; run command from UI setup when needed.
+app.post(`${basePath}/api/bootstrap/migrate`, async (_req, res) => {
     res.status(501).json({ error: "Run `npm run migrate` in backend to import TOML data." });
 });
 const frontendDist = path.join(ROOT, "frontend", "dist");
 if (existsSync(path.join(frontendDist, "index.html"))) {
-    app.use(express.static(frontendDist));
-    app.get(/^(?!\/api\/).*/, (_req, res) => {
-        res.sendFile(path.join(frontendDist, "index.html"));
+    app.use(basePath || "/", express.static(frontendDist, { index: false }));
+    const spaPattern = basePath
+        ? new RegExp(`^${basePath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?!/api/).*`)
+        : /^(?!\/api\/).*/;
+    app.get(spaPattern, async (_req, res) => {
+        let html = await readFile(path.join(frontendDist, "index.html"), "utf8");
+        if (basePath) {
+            html = html.replace("<head>", `<head>\n    <base href="${basePath}/">`);
+        }
+        res.setHeader("Content-Type", "text/html");
+        res.send(html);
     });
 }
 app.use((_req, res) => {
@@ -123,5 +131,5 @@ app.use((error, _req, res, _next) => {
 });
 app.listen(port, () => {
     // eslint-disable-next-line no-console
-    console.log(`Backend listening on http://localhost:${port}`);
+    console.log(`Backend listening on http://localhost:${port}${basePath}`);
 });
